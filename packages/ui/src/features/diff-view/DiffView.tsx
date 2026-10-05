@@ -1,8 +1,38 @@
 import type { Comparison } from '@comparer/app';
 import type { NormalizedValue, ResolvedProfile } from '@comparer/core';
 import { useMemo, useState } from 'react';
+import { InfoTip } from '../../components/InfoTip.tsx';
 import { useComparerApp } from '../../hooks/useComparerApp.ts';
 import { unitFor } from './format.ts';
+
+/** Where a preset's value for a setting came from, in words. */
+function sourceText(profile: ResolvedProfile, settingKey: string): string {
+  const source = profile.settings.get(settingKey)?.definedBy;
+  if (source === undefined) return 'not set';
+  return source === 'default' ? "OrcaSlicer's built-in default" : `set in "${source.name}"`;
+}
+
+/** A row's tip: the setting's description, then where each side's value came from. */
+function RowTip({
+  comparison,
+  settingKey,
+  description,
+}: {
+  comparison: Comparison;
+  settingKey: string;
+  description: string | undefined;
+}) {
+  return (
+    <>
+      {description && <p>{description}</p>}
+      <p>
+        {comparison.left.ref.name}: {sourceText(comparison.left, settingKey)}
+        <br />
+        {comparison.right.ref.name}: {sourceText(comparison.right, settingKey)}
+      </p>
+    </>
+  );
+}
 
 function ValueCell({
   profile,
@@ -16,14 +46,10 @@ function ValueCell({
   unit: string | undefined;
 }) {
   if (value === undefined) return <td>—</td>;
-  const source = profile.settings.get(settingKey)?.definedBy;
-  const isDefault = source === 'default';
+  const isDefault = profile.settings.get(settingKey)?.definedBy === 'default';
   const shownUnit = unitFor(value, unit);
   return (
-    <td
-      className={isDefault ? 'is-default' : undefined}
-      title={isDefault ? "OrcaSlicer's built-in default" : source && `Set in "${source.name}"`}
-    >
+    <td className={isDefault ? 'is-default' : undefined}>
       {value.join(', ')}
       {shownUnit && <span className="unit"> {shownUnit}</span>}
     </td>
@@ -75,17 +101,20 @@ export function DiffView({ comparison }: { comparison: Comparison }) {
           Only differences ({differenceCount})
         </label>
         {unknownCount > 0 && (
-          <label
-            className="toggle"
-            title="Keys OrcaSlicer doesn't define. It ignores them when it loads a profile."
-          >
-            <input
-              type="checkbox"
-              checked={hideUnknown}
-              onChange={(event) => setHideUnknown(event.target.checked)}
+          <span className="toggle">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={hideUnknown}
+                onChange={(event) => setHideUnknown(event.target.checked)}
+              />
+              Hide settings OrcaSlicer doesn't use ({unknownCount})
+            </label>
+            <InfoTip
+              subject="hidden settings"
+              content="Keys OrcaSlicer doesn't define, such as Bambu Studio leftovers in bundled profiles. OrcaSlicer ignores them when it loads a profile."
             />
-            Hide settings OrcaSlicer doesn't use ({unknownCount})
-          </label>
+          </span>
         )}
       </div>
       <table>
@@ -104,8 +133,19 @@ export function DiffView({ comparison }: { comparison: Comparison }) {
         <tbody>
           {rows.map(({ row, info }) => (
             <tr key={row.key} data-status={row.status}>
-              <th scope="row" title={info?.tooltip}>
-                <span className="setting-label">{info?.label ?? row.key}</span>
+              <th scope="row">
+                <InfoTip
+                  subject={info?.label ?? row.key}
+                  content={
+                    <RowTip
+                      comparison={comparison}
+                      settingKey={row.key}
+                      description={info?.tooltip}
+                    />
+                  }
+                >
+                  <span className="setting-label">{info?.label ?? row.key}</span>
+                </InfoTip>
                 {info && info.label !== row.key && <code className="setting-key">{row.key}</code>}
               </th>
               <ValueCell

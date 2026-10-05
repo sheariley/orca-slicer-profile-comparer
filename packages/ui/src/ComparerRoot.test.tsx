@@ -22,7 +22,12 @@ function renderComparer(canSave = false) {
     catalog: {
       describe: (key) =>
         key === 'nozzle_temperature'
-          ? { key, label: 'Nozzle temperature', unit: '℃' }
+          ? {
+              key,
+              label: 'Nozzle temperature',
+              unit: '℃',
+              tooltip: 'Temperature after the first layer.',
+            }
           : key === 'bambu_only'
             ? undefined
             : { key, label: key },
@@ -60,7 +65,7 @@ describe('ComparerRoot', () => {
     expect(within(screen.getByRole('table')).getByText('fan_max_speed')).toBeInTheDocument();
   });
 
-  it("marks values that are OrcaSlicer's built-in defaults", async () => {
+  it("marks built-in defaults, and tells where each value came from in the row's info tip", async () => {
     const user = userEvent.setup();
     renderComparer();
 
@@ -69,12 +74,26 @@ describe('ComparerRoot', () => {
     await user.click(await screen.findByLabelText(/Only differences/));
 
     const row = within(screen.getByRole('table')).getByText('filament_density').closest('tr')!;
-    const cells = within(row).getAllByRole('cell');
-    expect(cells[0]).toHaveTextContent('1.24');
-    expect(cells[0]).toHaveAttribute('title', "OrcaSlicer's built-in default");
-    expect(
-      within(row.parentElement!).getByText('fan_max_speed').closest('tr')!.querySelector('td'),
-    ).toHaveAttribute('title', 'Set in "PLA"');
+    expect(within(row).getAllByRole('cell')[0]).toHaveClass('is-default');
+
+    await user.click(within(row).getByRole('button', { name: 'About filament_density' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent("PLA: OrcaSlicer's built-in default");
+
+    await user.click(within(row).getByRole('button', { name: 'About filament_density' }));
+    await user.click(screen.getByRole('button', { name: 'About fan_max_speed' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent('PLA: set in "PLA"');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('PETG: set in "PETG"');
+  });
+
+  it('shows the setting description in the info tip', async () => {
+    const user = userEvent.setup();
+    renderComparer();
+
+    await user.selectOptions(await screen.findByLabelText('Left'), 'PLA');
+    await user.selectOptions(screen.getByLabelText('Right'), 'PETG');
+    await user.click(await screen.findByRole('button', { name: 'About Nozzle temperature' }));
+
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Temperature after the first layer');
   });
 
   it("hides settings OrcaSlicer doesn't use until asked", async () => {

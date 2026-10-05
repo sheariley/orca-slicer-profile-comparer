@@ -168,3 +168,55 @@ input[type='search'] {
   border-radius: 4px;
   color: var(--c-error);
 }
+
+/* InfoTip: the info button keeps a 32 × 32 px hit area (touch) without growing the layout. */
+.info-tip-anchor {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.info-tip-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -9px -9px -9px -5px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--c-muted);
+  cursor: pointer;
+}
+
+.info-tip-button:hover,
+.info-tip-button[aria-expanded='true'] {
+  color: var(--c-accent);
+}
+
+.info-tip-button:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -6px;
+}
+
+.info-tip {
+  z-index: 10;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--c-fg);
+  color: var(--c-bg);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+}
+
+.info-tip p {
+  margin: 0;
+}
+
+.info-tip p + p {
+  margin-top: 4px;
+}

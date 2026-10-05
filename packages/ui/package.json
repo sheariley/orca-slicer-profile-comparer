@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@comparer/app": "workspace:*",
-    "@comparer/core": "workspace:*"
+    "@comparer/core": "workspace:*",
+    "@floating-ui/react": "catalog:"
   },
   "peerDependencies": {
     "react": "catalog:",

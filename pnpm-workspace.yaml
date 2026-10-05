@@ -6,6 +6,7 @@ packages:
 # Shared third-party versions. Reference them from package.json as "catalog:".
 catalog:
   '@eslint/js': ^10.0.1
+  '@floating-ui/react': ^0.27.20
   '@tauri-apps/api': ^2.12.1
   '@tauri-apps/cli': ^2.12.1
   '@tauri-apps/plugin-fs': ^2.6.0
