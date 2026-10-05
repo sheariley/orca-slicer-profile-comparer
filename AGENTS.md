@@ -2,19 +2,9 @@
 
 OrcaSlicer Profile Comparer: a cross-platform tool for comparing OrcaSlicer **filament** and **process** profiles in a diff-like view of how their settings differ. It's also an editor. From the diff view, users can copy individual setting values from one profile to another, or bulk-copy settings from one profile to many target profiles at once, and save the changed profiles back to disk. It ships first as a Tauri desktop app and later as an OrcaSlicer plugin, running the same UI and core in both.
 
-**Status:** scaffolded. Comparing works end to end (read-only) in the playground, desktop, and plugin builds. Not built yet:
+**Status:** comparing works end to end (read-only) in the playground, desktop, and plugin builds. The desktop app builds and runs on Windows and in WSL, and has been checked against a real OrcaSlicer data folder on Windows. Editing and saving aren't built yet.
 
-- **Editing:** transfers, bulk copy, undo, and saving (`core/edit/`, `core/serialize/`, `app/session/`, and the matching UI features).
-- **`include` templates:** inheritance resolution doesn't apply them yet (see "OrcaSlicer profile format").
-- **Legacy value rewrites:** of OrcaSlicer's `handle_legacy` rules, only obsolete keys and plain renames are applied. The 34 rules that rewrite values or depend on them aren't (the extractor reports the count).
-- **Settings store:** the `SettingsStore` port is defined but no app uses it yet.
-- **Known UI gaps:**
-  - Hover tooltips (setting descriptions, where a value came from, the unknown-settings toggle) are native `title` attributes with no info-icon alternative, which breaks the touch rule in "UI/UX rules".
-  - Labels repeat ("Fan speed" three times) because the catalog lacks OrcaSlicer's tab and section grouping (`Tab.cpp`).
-  - Enum values show their keys (`disabled_fuzzy`), not OrcaSlicer's labels ("Disabled"). Extract `enum_values` / `enum_labels` per option.
-  - The pickers list non-selectable templates (`instantiation: "false"`) and show presets from both user folders with identical labels.
-
-The desktop app builds and runs on Windows and in WSL. It has been checked end to end against a real OrcaSlicer data folder on Windows.
+**Open work is tracked in [TASKS.md](TASKS.md).** Check it before starting, and keep it current: add tasks you discover, and mark the ones you finish `[x]`, in the same change.
 
 **OrcaSlicer source:** many directives here point into OrcaSlicer's source code, which is the source of truth for the profile format, setting definitions, and plugin API. In the local workspace a clone sits next to this repo at `../OrcaSlicer/`. Otherwise, clone [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer). Treat it as read-only reference material.
 
@@ -126,6 +116,7 @@ Folders marked `(planned)` don't exist yet.
 ```
 orca-slicer-profile-comparer/
 ├── AGENTS.md
+├── TASKS.md                    # open work, by area and priority
 ├── README.md
 ├── package.json                # private root: scripts and repo-wide dev tools only
 ├── pnpm-workspace.yaml         # workspace globs + catalog of shared dependency versions
@@ -264,7 +255,7 @@ pnpm extract-settings   # regenerate the setting catalog from ../OrcaSlicer (or 
 pnpm sync-fixtures      # refresh system-profile fixtures from ../OrcaSlicer (or --orca <path>)
 ```
 
-Before finishing a change, run `pnpm lint`, `pnpm typecheck`, and `pnpm test`, plus `pnpm test:python` if you touched the plugin or the bridge protocol.
+Before finishing a change, run `pnpm lint`, `pnpm typecheck`, and `pnpm test`, plus `pnpm test:python` if you touched the plugin or the bridge protocol. Update `TASKS.md` too.
 
 ## Development environment
 
