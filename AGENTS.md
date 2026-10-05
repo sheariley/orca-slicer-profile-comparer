@@ -30,6 +30,8 @@ These apply to every host (desktop, plugin, playground). When a rule here confli
   - The icon is a real button with an accessible name (e.g. "About Nozzle temperature"). It works from the keyboard (Enter/Space opens, Escape closes), and the tooltip closes on a second tap or a tap outside.
   - Put the tooltip text in one place and use it for both the hover and the icon, so the two never drift apart.
   - Native `title` attributes alone don't satisfy this rule; they're hover-only and unreachable by touch or keyboard.
+  - **Use `InfoTip`** (`packages/ui/src/components/InfoTip.tsx`) for every tooltip; it implements all of the above. Don't add `title` attributes.
+  - In dense tables, give each row one info tip that covers the whole row (e.g. the setting's description plus where each side's value came from) rather than an icon per cell.
 - **Size touch targets for fingers.** Buttons, checkboxes, info icons, and picker rows need a hit area of at least 32 × 32 CSS px (44 × 44 preferred), even when the visible glyph is smaller.
 - **Label every control.** Use a visible `<label>` or an `aria-label`, and semantic roles (`tablist`/`tab`, `table`, `alert`). Component tests query by role and label (React Testing Library), which keeps this honest.
 - **Support the keyboard.** Every action reachable by mouse or touch must also be reachable by keyboard, with a visible focus indicator.
@@ -107,6 +109,11 @@ The host interface (Tauri) and the plugin interface (OrcaSlicer's Python `orca` 
 - **Have the core resolve inheritance itself, from raw profile documents.** Some hosts hand over already-resolved values (the OrcaSlicer plugin API does), but only the raw document says which keys a profile owns, and saving depends on that. Treat host-resolved values as a cross-check at most.
 - **Use one composition root per app.** Each entry point (desktop, plugin, playground) is the only place that picks and wires an adapter.
 - **Treat a single transfer as a bulk transfer with one target.** Use one code path in `core` and `app` for both, so the same rules apply either way: skip targets that are already equal, check type and key compatibility, decide array lengths, and handle system targets. A batch is one undo step made of per-target change sets, and `saveChanges` returns a result for each target instead of all-or-nothing.
+- **Don't reinvent the wheel.** Before building a shared UI component or a general-purpose utility (tooltips, popovers, dialogs, menus, virtualized lists, date handling, ...), look for a vetted, mature package: actively maintained, widely used, accessible, typed, and compatible with our targets (React 19, all three OS web views, a single-file plugin build).
+  - **Add the dependency only when its behavior clearly matches what we need.** It's fine if the package does more than we need.
+  - **Prefer our own implementation when the package would need patching,** monkey-patching, or fighting its intended behavior (e.g. a tooltip library that deliberately refuses to open on click, when we need click). Forcing a package against its design costs more than writing the thing ourselves.
+  - **Record the choice:** the package, why it fits, and the alternatives rejected and why. Use an ADR for significant choices, or a comment in the component that wraps the package.
+  - **Wrap third-party UI behind our own component** (e.g. `InfoTip` over Floating UI), so the rest of the UI doesn't depend on the package directly and replacing it touches one file.
 - **Enforce the layering with tooling, not convention.** Make each layer a workspace package and add ESLint (`no-restricted-imports`) and dependency-cruiser rules that fail the build on forbidden imports. See "Dependency rules".
 
 ## Directory structure
