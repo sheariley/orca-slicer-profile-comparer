@@ -9,6 +9,7 @@ OrcaSlicer Profile Comparer: a cross-platform tool for comparing OrcaSlicer **fi
 - **Legacy value rewrites:** of OrcaSlicer's `handle_legacy` rules, only obsolete keys and plain renames are applied. The 34 rules that rewrite values or depend on them aren't (the extractor reports the count).
 - **Settings store:** the `SettingsStore` port is defined but no app uses it yet.
 - **Known UI gaps:**
+  - Hover tooltips (setting descriptions, where a value came from, the unknown-settings toggle) are native `title` attributes with no info-icon alternative, which breaks the touch rule in "UI/UX rules".
   - Labels repeat ("Fan speed" three times) because the catalog lacks OrcaSlicer's tab and section grouping (`Tab.cpp`).
   - Enum values show their keys (`disabled_fuzzy`), not OrcaSlicer's labels ("Disabled"). Extract `enum_values` / `enum_labels` per option.
   - The pickers list non-selectable templates (`instantiation: "false"`) and show presets from both user folders with identical labels.
@@ -19,17 +20,7 @@ The desktop app builds and runs on Windows and in WSL. It has been checked end t
 
 ## Requirements
 
-- **User-friendly UI.** The audience is OrcaSlicer users, not developers, so the UI should feel like a polished desktop tool:
-  - Side-by-side diff that can switch between showing only differences and showing everything, plus a search or filter by setting name.
-  - Settings shown by their OrcaSlicer labels and grouped the way OrcaSlicer's tabs group them, with the raw key still available.
-  - Easy profile picking (browse system and user presets by vendor and printer, or open a file) instead of typing paths.
-  - One-click transfer of a value in either direction, with a clear indicator of unsaved changes, undo, and a confirmation before saving.
-  - **Bulk copy to multiple targets:** pick one or more settings in a source profile and copy them to many target profiles of the same type in one action.
-    - Choose targets from the preset browser, with multi-select, filters (vendor, printer, user vs. system), and select-all.
-    - Before applying, show a per-target preview: the current value, the new value, and which targets are already equal and will be skipped.
-    - Apply as one undoable operation, while still letting users drop individual targets or settings from the batch.
-    - On save, report the result for each target (saved, skipped, failed, needs a new user preset). One target failing must not stop the others or hide which ones succeeded.
-  - Readable rendering of arrays, percentages, and multi-line G-code. Show where an inherited value came from.
+- **User-friendly UI.** The audience is OrcaSlicer users, not developers, so the UI should feel like a polished desktop tool, on mouse and touch displays alike. The rules are in "UI/UX rules" below.
 - **Cross-platform.** It must run on Windows, macOS, and Linux, matching OrcaSlicer's own platforms:
   - Use a stack and packaging that ship on all three.
   - Build file paths with platform APIs, never hard-coded separators.
@@ -37,6 +28,68 @@ The desktop app builds and runs on Windows and in WSL. It has been checked end t
   - Handle preset filenames that contain spaces, `@`, and other unusual characters. Don't assume the filesystem is case-sensitive or case-insensitive.
   - Expect Windows file locking when OrcaSlicer has a file open.
   - Run tests and CI on all three OSes.
+
+## UI/UX rules
+
+These apply to every host (desktop, plugin, playground). When a rule here conflicts with convenience in code, the rule wins.
+
+### Input and accessibility
+
+- **Every hover interaction needs a touch-friendly alternative.** Touch displays have no hover, so nothing may be reachable only by hovering:
+  - Wherever a hover tooltip is used or applicable, also show an "info" icon next to the element. Clicking or tapping the icon shows the same tooltip content.
+  - The icon is a real button with an accessible name (e.g. "About Nozzle temperature"). It works from the keyboard (Enter/Space opens, Escape closes), and the tooltip closes on a second tap or a tap outside.
+  - Put the tooltip text in one place and use it for both the hover and the icon, so the two never drift apart.
+  - Native `title` attributes alone don't satisfy this rule; they're hover-only and unreachable by touch or keyboard.
+- **Size touch targets for fingers.** Buttons, checkboxes, info icons, and picker rows need a hit area of at least 32 × 32 CSS px (44 × 44 preferred), even when the visible glyph is smaller.
+- **Label every control.** Use a visible `<label>` or an `aria-label`, and semantic roles (`tablist`/`tab`, `table`, `alert`). Component tests query by role and label (React Testing Library), which keeps this honest.
+- **Support the keyboard.** Every action reachable by mouse or touch must also be reachable by keyboard, with a visible focus indicator.
+
+### Comparing
+
+- **Side-by-side diff.** Two value columns of equal width next to a setting column, with a sticky header naming both presets. Long values wrap instead of overflowing.
+- **Show only differences by default,** with a toggle that shows everything. The toggle shows the count of differences.
+- **Filter by setting name,** matching both OrcaSlicer's label and the raw key.
+- **Label settings the way OrcaSlicer does.** Show OrcaSlicer's label (preferring its full label over the short tab label), and the raw key underneath in a muted monospace style. Show the key only when it differs from the label. Group settings the way OrcaSlicer's tabs do (not built yet).
+- **Render values readably.** Join arrays with commas, show multi-line G-code as multi-line text, and show the unit after a value. Never add a unit to a value that's already a percentage, and drop the "or %" part of units like "mm/s² or %" for plain numbers.
+- **Show where every value came from.** Its tooltip (hover, plus the info icon) names the preset that set it. Built-in OrcaSlicer defaults are visually distinct (muted, italic) and say so.
+- **Never silently drop data from the view.** Keys OrcaSlicer ignores (not in the setting catalog) are hidden by default behind a "Hide settings OrcaSlicer doesn't use (N)" toggle that shows the count, never removed outright.
+- **Highlight changed rows** with the `--c-changed` token, including rows set on only one side.
+
+### Picking presets
+
+- **Browse, don't type.** Pick presets from lists of system and user presets, filterable by vendor and printer, or open a file. Never ask for a path.
+- **Make every option identifiable.** Show the origin (vendor or "User") with each name. When the same name appears more than once (e.g. in two user folders), add whatever tells them apart.
+- **Hide non-selectable templates** (`instantiation: "false"`) by default.
+
+### Editing and bulk copy
+
+- **One-click transfer** of a value in either direction.
+- **Always show unsaved changes,** offer undo, and confirm before saving.
+- **Bulk copy:** pick one or more settings in a source profile and copy them to many targets of the same type in one action.
+  - Choose targets from the preset browser, with multi-select, filters (vendor, printer, user vs. system), and select-all.
+  - Before applying, preview each target: the current value, the new value, and which targets already match and will be skipped.
+  - Apply the batch as one undoable step, while letting users drop individual targets or settings from it.
+  - When the batch includes system presets, ask once whether to create user presets for them, and list which ones that affects.
+
+### Saving and feedback
+
+- **Report results per target:** saved, skipped, failed, or needs a new user preset. One failure must not stop the others or hide which ones succeeded, and failed edits stay pending so the user can retry.
+- **Tell users what to do next.** If OrcaSlicer must re-select a preset or restart to see a change, the save result says so and the UI tells the user. Never assume the change took effect.
+- **Warn about a running OrcaSlicer,** which may overwrite saved files or not pick up changes.
+
+### Errors and host limits
+
+- **Explain errors in plain language.** Show a short explanation of the error's kind, plus the specific detail (which preset, which parent, which file). Never show raw exceptions or stack traces. Errors must not crash the UI.
+- **Adapt to host capabilities, and say so.** When a host can't do something (e.g. `canSave: false`), show it (the "Read-only" badge) and disable or hide the action with an explanation, instead of letting it fail.
+
+### Visual design and theming
+
+- **Take colors only from design tokens** (CSS variables in `packages/ui/src/theme/`). Component styles (`base.css`) never hard-code colors.
+  - `desktop.css` defines the token values for the desktop app and the playground, with light and dark variants that follow the OS (`prefers-color-scheme`).
+  - `orca.css` maps the tokens onto the variables OrcaSlicer injects into plugin pages (`--orca-bg`, `--orca-fg`, `--orca-muted`, `--orca-border`, `--orca-accent`, `--orca-accent-fg`, `--orca-font`), so the plugin follows OrcaSlicer's theme.
+- **Look at home in OrcaSlicer:** compact density (13 px base font), OrcaSlicer's accent color for selection and primary actions, and its font inside the plugin.
+- **Use only features every target web view supports:** WebView2 (Windows), WebKit (macOS), and WebKitGTK (Linux).
+- **Keep the plugin page self-contained:** no external fonts, images, or scripts. Everything is inlined into one HTML file.
 
 ## Stack
 
@@ -338,7 +391,7 @@ Directives:
 - **Keep the Python layer thin.** It may only translate bridge messages into `orca.host` calls and file I/O, and back. No diffing, resolution, or business logic belongs in Python.
 - **Keep every `orca.*` reference** in the Python files and every bridge detail in `host-orca`. A plugin API change should touch only those two.
 - **Version the bridge protocol.** Define the message types once in `bridge-protocol`, include a protocol version in a handshake, and validate every message on both sides.
-- **Style through design tokens.** Define the UI's colors as CSS variables. The plugin build maps them onto `--orca-*`, and the desktop build supplies its own values.
+- **Style through design tokens.** The plugin build maps the UI's tokens onto `--orca-*` (see "UI/UX rules").
 - **Keep to features all three OS web views support.** Set the build's browser targets to match WebView2, WebKit, and WebKitGTK, and test on all three.
 - **Treat plugin saving as unresolved.** Without a preset write API, saving means writing files directly while OrcaSlicer holds presets in memory and may overwrite them or not reload them.
   - Report `canSave: false` from the plugin adapter until saving has been tested on all three OSes. Linux is blocked until the `conf` keyword problem above is fixed upstream (follow #15944).
