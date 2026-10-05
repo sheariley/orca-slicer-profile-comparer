@@ -1,0 +1,17 @@
+/*
+ * Design tokens inside OrcaSlicer: mapped onto the variables OrcaSlicer injects into plugin
+ * pages (--orca-bg, --orca-fg, --orca-muted, --orca-border, --orca-accent, --orca-accent-fg,
+ * --orca-font), so the comparer follows OrcaSlicer's light/dark theme.
+ */
+:root {
+  --font: var(--orca-font, system-ui, sans-serif);
+  --c-bg: var(--orca-bg, #ffffff);
+  --c-fg: var(--orca-fg, #1f2328);
+  --c-muted: var(--orca-muted, #656d76);
+  --c-border: var(--orca-border, #d0d7de);
+  --c-accent: var(--orca-accent, #009688);
+  --c-accent-fg: var(--orca-accent-fg, #ffffff);
+  --c-surface: color-mix(in srgb, var(--c-fg) 5%, var(--c-bg));
+  --c-changed: color-mix(in srgb, var(--c-accent) 14%, var(--c-bg));
+  --c-error: #e5534b;
+}

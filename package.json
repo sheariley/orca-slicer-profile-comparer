@@ -1,0 +1,38 @@
+{
+  "name": "orca-slicer-profile-comparer",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.9.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:playground": "pnpm --filter @comparer/playground dev",
+    "dev:desktop": "pnpm --filter @comparer/desktop tauri dev",
+    "build:desktop": "pnpm --filter @comparer/desktop tauri build",
+    "build:plugin": "pnpm --filter @comparer/orca-plugin build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:python": "node scripts/run-python.mjs -m unittest discover -s apps/orca-plugin/python/tests -t apps/orca-plugin/python",
+    "lint": "eslint . && depcruise packages apps tools --config .dependency-cruiser.cjs",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "extract-settings": "pnpm --filter @comparer/extract-settings start",
+    "sync-fixtures": "pnpm --filter @comparer/sync-fixtures start"
+  },
+  "devDependencies": {
+    "@eslint/js": "catalog:",
+    "@types/node": "catalog:",
+    "dependency-cruiser": "catalog:",
+    "eslint": "catalog:",
+    "eslint-plugin-react-hooks": "catalog:",
+    "eslint-plugin-react-refresh": "catalog:",
+    "globals": "catalog:",
+    "jsdom": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
+  }
+}

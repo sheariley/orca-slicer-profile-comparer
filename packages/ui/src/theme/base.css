@@ -1,0 +1,164 @@
+/* Component styles. Colors come only from the tokens in desktop.css or orca.css. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-fg);
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+.comparer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.comparer-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.comparer-header h1 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.type-tabs {
+  display: flex;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.type-tabs button {
+  border: 0;
+  padding: 4px 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.type-tabs button[aria-selected='true'] {
+  background: var(--c-accent);
+  color: var(--c-accent-fg);
+}
+
+.badge {
+  padding: 2px 8px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  color: var(--c-muted);
+  font-size: 12px;
+}
+
+.pickers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.picker label {
+  color: var(--c-muted);
+  font-size: 12px;
+}
+
+select,
+input[type='search'] {
+  padding: 4px 8px;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-bg);
+  color: inherit;
+  font: inherit;
+}
+
+.diff-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.diff-toolbar input[type='search'] {
+  flex: 1;
+  max-width: 320px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.diff table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.diff col.setting-column {
+  width: 34%;
+}
+
+.diff th,
+.diff td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--c-border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.diff thead th {
+  position: sticky;
+  top: 0;
+  background: var(--c-surface);
+}
+
+.diff tbody th {
+  font-weight: normal;
+}
+
+.diff tr[data-status='changed'] td,
+.diff tr[data-status='left-only'] td,
+.diff tr[data-status='right-only'] td {
+  background: var(--c-changed);
+}
+
+.setting-key {
+  display: block;
+  color: var(--c-muted);
+  font-size: 11px;
+}
+
+.unit,
+.status,
+.empty {
+  color: var(--c-muted);
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--c-error);
+  border-radius: 4px;
+  color: var(--c-error);
+}

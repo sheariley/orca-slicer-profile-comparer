@@ -1,0 +1,18 @@
+{
+  "$comment": "Profiles copied from OrcaSlicer's resources/profiles/ into packages/core/test/fixtures/system/. Paths are relative to resources/profiles/.",
+  "profiles": [
+    "BBL/filament/Bambu ABS @BBL A1.json",
+    "BBL/filament/Bambu ABS @base.json",
+    "BBL/filament/fdm_filament_abs.json",
+    "BBL/filament/Bambu PLA Basic @BBL A1.json",
+    "BBL/filament/Bambu PLA Basic @base.json",
+    "BBL/filament/fdm_filament_pla.json",
+    "BBL/filament/fdm_filament_common.json",
+    "BBL/process/0.20mm Standard @BBL A1.json",
+    "BBL/process/fdm_process_single_0.20.json",
+    "BBL/process/0.16mm Optimal @BBL A1.json",
+    "BBL/process/fdm_process_single_0.16.json",
+    "BBL/process/fdm_process_single_common.json",
+    "BBL/process/fdm_process_common.json"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@comparer/host-tauri",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@comparer/core": "workspace:*",
+    "@tauri-apps/api": "catalog:",
+    "@tauri-apps/plugin-fs": "catalog:"
+  },
+  "devDependencies": {
+    "@comparer/host-contract-tests": "workspace:*"
+  }
+}

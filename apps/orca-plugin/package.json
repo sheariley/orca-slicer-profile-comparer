@@ -1,0 +1,25 @@
+{
+  "name": "@comparer/orca-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build && node scripts/build-plugin.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@comparer/app": "workspace:*",
+    "@comparer/host-orca": "workspace:*",
+    "@comparer/setting-catalog": "workspace:*",
+    "@comparer/ui": "workspace:*",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-singlefile": "catalog:"
+  }
+}

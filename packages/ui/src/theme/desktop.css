@@ -1,0 +1,28 @@
+/* Design tokens for the desktop app and the browser playground. */
+:root {
+  color-scheme: light dark;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --c-bg: #ffffff;
+  --c-surface: #f5f6f7;
+  --c-fg: #1f2328;
+  --c-muted: #656d76;
+  --c-border: #d0d7de;
+  --c-accent: #009688;
+  --c-accent-fg: #ffffff;
+  --c-changed: #fff8c5;
+  --c-error: #cf222e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-bg: #1e1f22;
+    --c-surface: #2b2d31;
+    --c-fg: #e6e7e9;
+    --c-muted: #9aa0a6;
+    --c-border: #3f4247;
+    --c-accent: #26a69a;
+    --c-accent-fg: #0d1117;
+    --c-changed: #3d3a1f;
+    --c-error: #ff7b72;
+  }
+}

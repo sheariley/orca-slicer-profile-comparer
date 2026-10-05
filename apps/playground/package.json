@@ -1,0 +1,27 @@
+{
+  "name": "@comparer/playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@comparer/app": "workspace:*",
+    "@comparer/core": "workspace:*",
+    "@comparer/host-memory": "workspace:*",
+    "@comparer/setting-catalog": "workspace:*",
+    "@comparer/ui": "workspace:*",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "vite": "catalog:"
+  }
+}

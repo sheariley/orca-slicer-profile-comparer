@@ -1,0 +1,208 @@
+{
+  "$comment": "Request/response pairs for the plugin bridge. The TypeScript tests validate them against the zod schemas; the Python tests replay each request against a fake host seeded with `host` and expect exactly `response`.",
+  "host": {
+    "capabilities": { "canSave": false, "canBrowseFiles": false, "canWatchForChanges": false },
+    "presets": [
+      {
+        "ref": {
+          "id": "filament:Bambu PLA Basic @BBL A1",
+          "name": "Bambu PLA Basic @BBL A1",
+          "type": "filament",
+          "origin": "system",
+          "vendor": "BBL"
+        },
+        "content": {
+          "name": "Bambu PLA Basic @BBL A1",
+          "inherits": "Bambu PLA Basic @base",
+          "nozzle_temperature": ["220"]
+        }
+      },
+      {
+        "ref": {
+          "id": "filament:Bambu PLA Basic @base",
+          "name": "Bambu PLA Basic @base",
+          "type": "filament",
+          "origin": "system",
+          "vendor": "BBL"
+        },
+        "content": { "name": "Bambu PLA Basic @base", "nozzle_temperature": ["210"] }
+      },
+      {
+        "ref": {
+          "id": "process:0.20mm Standard @BBL A1",
+          "name": "0.20mm Standard @BBL A1",
+          "type": "process",
+          "origin": "system",
+          "vendor": "BBL"
+        },
+        "content": { "name": "0.20mm Standard @BBL A1", "layer_height": "0.2" }
+      }
+    ]
+  },
+  "exchanges": [
+    {
+      "name": "hello",
+      "request": {
+        "protocol": 1,
+        "id": "1",
+        "method": "hello",
+        "params": { "protocolVersion": 1 }
+      },
+      "response": {
+        "protocol": 1,
+        "id": "1",
+        "ok": true,
+        "result": {
+          "protocolVersion": 1,
+          "capabilities": { "canSave": false, "canBrowseFiles": false, "canWatchForChanges": false }
+        }
+      }
+    },
+    {
+      "name": "listPresets by type",
+      "request": {
+        "protocol": 1,
+        "id": "2",
+        "method": "listPresets",
+        "params": { "type": "process" }
+      },
+      "response": {
+        "protocol": 1,
+        "id": "2",
+        "ok": true,
+        "result": {
+          "presets": [
+            {
+              "id": "process:0.20mm Standard @BBL A1",
+              "name": "0.20mm Standard @BBL A1",
+              "type": "process",
+              "origin": "system",
+              "vendor": "BBL"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "readDocument",
+      "request": {
+        "protocol": 1,
+        "id": "3",
+        "method": "readDocument",
+        "params": {
+          "ref": {
+            "id": "filament:Bambu PLA Basic @base",
+            "name": "Bambu PLA Basic @base",
+            "type": "filament",
+            "origin": "system",
+            "vendor": "BBL"
+          }
+        }
+      },
+      "response": {
+        "protocol": 1,
+        "id": "3",
+        "ok": true,
+        "result": {
+          "content": { "name": "Bambu PLA Basic @base", "nozzle_temperature": ["210"] }
+        }
+      }
+    },
+    {
+      "name": "resolveParent",
+      "request": {
+        "protocol": 1,
+        "id": "4",
+        "method": "resolveParent",
+        "params": {
+          "child": {
+            "id": "filament:Bambu PLA Basic @BBL A1",
+            "name": "Bambu PLA Basic @BBL A1",
+            "type": "filament",
+            "origin": "system",
+            "vendor": "BBL"
+          },
+          "parentName": "Bambu PLA Basic @base"
+        }
+      },
+      "response": {
+        "protocol": 1,
+        "id": "4",
+        "ok": true,
+        "result": {
+          "ref": {
+            "id": "filament:Bambu PLA Basic @base",
+            "name": "Bambu PLA Basic @base",
+            "type": "filament",
+            "origin": "system",
+            "vendor": "BBL"
+          }
+        }
+      }
+    },
+    {
+      "name": "resolveParent with no match",
+      "request": {
+        "protocol": 1,
+        "id": "5",
+        "method": "resolveParent",
+        "params": {
+          "child": {
+            "id": "filament:Bambu PLA Basic @BBL A1",
+            "name": "Bambu PLA Basic @BBL A1",
+            "type": "filament",
+            "origin": "system",
+            "vendor": "BBL"
+          },
+          "parentName": "missing"
+        }
+      },
+      "response": { "protocol": 1, "id": "5", "ok": true, "result": { "ref": null } }
+    },
+    {
+      "name": "readDocument for an unknown preset",
+      "request": {
+        "protocol": 1,
+        "id": "6",
+        "method": "readDocument",
+        "params": {
+          "ref": { "id": "filament:ghost", "name": "ghost", "type": "filament", "origin": "user" }
+        }
+      },
+      "response": {
+        "protocol": 1,
+        "id": "6",
+        "ok": false,
+        "error": {
+          "kind": "not-found",
+          "message": "No preset \"ghost\".",
+          "subject": "filament:ghost"
+        }
+      }
+    },
+    {
+      "name": "saveDocument while saving is unsupported",
+      "request": {
+        "protocol": 1,
+        "id": "7",
+        "method": "saveDocument",
+        "params": {
+          "ref": {
+            "id": "filament:Bambu PLA Basic @base",
+            "name": "Bambu PLA Basic @base",
+            "type": "filament",
+            "origin": "system",
+            "vendor": "BBL"
+          },
+          "content": { "name": "Bambu PLA Basic @base" }
+        }
+      },
+      "response": {
+        "protocol": 1,
+        "id": "7",
+        "ok": false,
+        "error": { "kind": "unsupported", "message": "Saving isn't supported in the plugin yet." }
+      }
+    }
+  ]
+}

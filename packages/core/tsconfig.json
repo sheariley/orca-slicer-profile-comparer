@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // src/ must stay free of Node APIs (enforced by lint); only test/ uses them.
+    "types": ["node"]
+  },
+  "include": ["src", "test"]
+}

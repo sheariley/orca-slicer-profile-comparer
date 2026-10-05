@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+# Real OrcaSlicer profiles: keep byte-for-byte so format-preserving tests stay honest.
+packages/core/test/fixtures/** -text
+
+*.png binary
+*.ico binary
+*.icns binary

@@ -1,0 +1,20 @@
+{
+  "name": "@comparer/host-orca",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@comparer/bridge-protocol": "workspace:*",
+    "@comparer/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@comparer/host-contract-tests": "workspace:*",
+    "@comparer/host-memory": "workspace:*"
+  }
+}

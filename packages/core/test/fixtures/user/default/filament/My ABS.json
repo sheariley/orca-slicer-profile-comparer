@@ -1,0 +1,12 @@
+{
+    "filament_flow_ratio": [
+        "0.93"
+    ],
+    "from": "User",
+    "inherits": "Bambu ABS @BBL A1",
+    "name": "My ABS",
+    "nozzle_temperature": [
+        "260"
+    ],
+    "version": "2.4.0.0"
+}
