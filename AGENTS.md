@@ -6,12 +6,12 @@ OrcaSlicer Profile Comparer: a cross-platform tool for comparing OrcaSlicer **fi
 
 - **Editing:** transfers, bulk copy, undo, and saving (`core/edit/`, `core/serialize/`, `app/session/`, and the matching UI features).
 - **`include` templates:** inheritance resolution doesn't apply them yet (see "OrcaSlicer profile format").
+- **Legacy value rewrites:** of OrcaSlicer's `handle_legacy` rules, only obsolete keys and plain renames are applied. The 34 rules that rewrite values or depend on them aren't (the extractor reports the count).
 - **Settings store:** the `SettingsStore` port is defined but no app uses it yet.
-- **Built-in defaults (highest priority):** OrcaSlicer starts every root preset from its built-in defaults, and the core doesn't apply them yet. Comparing a preset whose chain ends at a sparse system preset against one built on a fully spelled-out user `base` preset shows many one-sided rows (`—`) that OrcaSlicer would display as default values. Extract the defaults from `set_default_value` in `PrintConfig.cpp` into the setting catalog, and start every resolution from them.
 - **Known UI gaps:**
   - Labels repeat ("Fan speed" three times) because the catalog lacks OrcaSlicer's tab and section grouping (`Tab.cpp`).
+  - Enum values show their keys (`disabled_fuzzy`), not OrcaSlicer's labels ("Disabled"). Extract `enum_values` / `enum_labels` per option.
   - The pickers list non-selectable templates (`instantiation: "false"`) and show presets from both user folders with identical labels.
-  - Units are appended to values that are already percentages (`50% %`).
 
 The desktop app builds and runs on Windows and in WSL. It has been checked end to end against a real OrcaSlicer data folder on Windows.
 
@@ -139,7 +139,7 @@ orca-slicer-profile-comparer/
 │   └── playground/             # Vite app in a plain browser: host-memory + core's fixtures
 │
 ├── tools/
-│   ├── extract-settings/       # parses OrcaSlicer's PrintConfig.cpp → setting-catalog data
+│   ├── extract-settings/       # PrintConfig.cpp + Preset.cpp → labels, defaults, type key lists, legacy keys
 │   └── sync-fixtures/          # copies profiles listed in fixtures.json into core's fixtures
 │
 └── docs/
@@ -207,7 +207,7 @@ pnpm typecheck          # tsc --noEmit in every package
 pnpm format             # Prettier
 pnpm build:desktop      # Tauri release build
 pnpm build:plugin       # single-file plugin: apps/orca-plugin/dist/orca_profile_comparer.py
-pnpm extract-settings   # regenerate the setting catalog from ../OrcaSlicer (or --orca <path>)
+pnpm extract-settings   # regenerate the setting catalog from ../OrcaSlicer (or --orca <path>; --verbose lists skipped defaults)
 pnpm sync-fixtures      # refresh system-profile fixtures from ../OrcaSlicer (or --orca <path>)
 ```
 
@@ -259,8 +259,15 @@ Paths are relative to the OrcaSlicer repo root.
 
 ## OrcaSlicer profile format
 
-- Profiles are JSON objects that mix settings with **metadata keys**. The metadata keys are listed in `METADATA_KEYS` (`core/src/model/profile.ts`), taken from the `BBL_JSON_KEY_*` / `ORCA_JSON_KEY_*` constants in OrcaSlicer's `Preset.hpp`: `type` (`filament` / `process` / `machine`), `name`, `inherits`, `include`, `from` (`system` / `User`), `setting_id`, `base_id`, `user_id`, `filament_id`, `instantiation`, `version`, `is_custom_defined`, `description`, `renamed_from`, `created_time`, and `updated_time`. Metadata is never inherited, compared, or copied. `compatible_printers` is a real setting, not metadata.
-- **Inheritance:** a profile usually lists only the keys it overrides and points to a parent through `inherits` (by preset name, e.g. `"Bambu ABS @base"` or `"fdm_process_single_0.06_nozzle_0.2"`). Parents can chain several levels deep. A meaningful comparison usually needs the **fully resolved** profile: walk the `inherits` chain and let child keys override parent keys. It can also help to show where each value came from.
+- Profiles are JSON objects that mix settings with **metadata keys**. The metadata keys are listed in `METADATA_KEYS` (`core/src/model/profile.ts`). They come from the `BBL_JSON_KEY_*` / `ORCA_JSON_KEY_*` constants in OrcaSlicer's `Preset.hpp`, plus the `*_settings_id` options that only repeat the preset's name: `type` (`filament` / `process` / `machine`), `name`, `inherits`, `include`, `from` (`system` / `User`), `setting_id`, `base_id`, `user_id`, `filament_id`, `instantiation`, `version`, `is_custom_defined`, `description`, `renamed_from`, `created_time`, `updated_time`, `filament_settings_id`, `print_settings_id`, and `printer_settings_id`. Metadata is never inherited, compared, or copied. `compatible_printers` is a real setting, not metadata.
+- **Inheritance:** a profile usually lists only the keys it overrides and points to a parent through `inherits` (by preset name, e.g. `"Bambu ABS @base"` or `"fdm_process_single_0.06_nozzle_0.2"`). Parents can chain several levels deep. A meaningful comparison needs the **fully resolved** profile: walk the `inherits` chain and let child keys override parent keys. The UI shows where each value came from (hover), and marks built-in defaults.
+- **Built-in defaults (implemented):** a root preset (no `inherits`) starts from OrcaSlicer's built-in default of every setting its type owns, and `resolveChain` does the same:
+  - The defaults come from `set_default_value` in `PrintConfig.cpp`, serialized exactly as OrcaSlicer writes them to profiles (`%g`-style numbers, `"1"`/`"0"` booleans, enum keys, `"0x0"` points).
+  - Which settings a type owns comes from `s_Preset_print_options` (process) and `s_Preset_filament_options` (filament) in `Preset.cpp`.
+  - The setting catalog serves both through `SettingCatalog.defaultsFor(type)`.
+  - Filament overrides of printer settings (`filament_retraction_length`, ...) are defined in a loop that copies the printer setting's label and default; the extractor follows it.
+- **Legacy keys (partly implemented):** OrcaSlicer's `PrintConfigDef::handle_legacy` runs on every key it loads. It discards obsolete keys (the `ignore` set, e.g. `adaptive_layer_height`) and renames old ones (`enable_wipe_tower` → `enable_prime_tower`). `resolveChain` applies both from `SettingCatalog.legacyKeys()`; when a file has an old key and its replacement, the replacement wins. Rules that rewrite values aren't applied.
+- **Unknown keys:** OrcaSlicer ignores keys it doesn't define, and Bambu's bundled profiles carry dozens of them (Bambu Studio leftovers such as `counter_coef_1`). The diff view hides keys the catalog doesn't know behind a "Hide settings OrcaSlicer doesn't use" toggle (on by default). The catalog must therefore cover every real setting; see `tools/extract-settings` for the definition forms it understands.
 - **`include` templates (not implemented yet):** about 1,500 bundled profiles also list `include`, an array of template preset names (or one bare name). OrcaSlicer resolves a preset as follows (`PresetBundle.cpp`, the install step after `parse_subfile`):
   1. Start from the parent's resolved settings. A preset with no `inherits` starts from OrcaSlicer's built-in defaults instead (`set_default_value` in `PrintConfig.cpp`).
   2. Layer each included template on top, in the order listed. What gets layered is the template's resolved settings minus the defaults, not just the keys in its own file.
@@ -272,7 +279,7 @@ Paths are relative to the OrcaSlicer repo root.
 - **Values are strings.** Numbers and booleans are stored as strings (`"0.4"`, `"1"`). Per-extruder or per-filament settings are arrays of strings (e.g. `"hot_plate_temp": ["100"]`). Some values are percentages (`"50%"`) or multi-line G-code. Normalize before comparing so that, say, `"16"` and `["16"]` don't show up as a false difference.
 - Parent names are resolved within the same vendor directory. Filaments and processes also inherit from shared bases such as `fdm_filament_common` and `fdm_process_common`, found in the vendor folder or in `resources/profiles/OrcaFilamentLibrary/`.
 - User-created presets live in the OrcaSlicer config directory under `user/<user_id>/{filament,process,machine}/` (`%APPDATA%\OrcaSlicer` on Windows, `~/.config/OrcaSlicer` on Linux, `~/Library/Application Support/OrcaSlicer` on macOS). Each is a `.json` with a sibling `.info` file. They often inherit from a system preset by name.
-- Human-readable labels, units, and the settings tab or group for each key come from `PrintConfig.cpp`. Use them to label and group the diff view instead of showing raw keys alone.
+- Human-readable labels, units, and categories for each key come from `PrintConfig.cpp`. Commented-out definitions there are retired options; the extractor strips comments before parsing so they don't become settings.
 
 ## Writing profiles back (transfer and save)
 
@@ -280,7 +287,10 @@ Paths are relative to the OrcaSlicer repo root.
 - **System profiles are effectively read-only.** Files under `resources/profiles/` (and OrcaSlicer's installed or cached copies) get replaced on app updates. Saving should target user presets. If the target is a system preset, offer to save as a new user preset that `inherits` from it.
 - **Keep OrcaSlicer's value format.** Write values back as strings or string arrays exactly as the target expects. Watch array length on per-extruder or per-filament keys: a one-element array copied into a profile expecting a different length needs a deliberate rule. Never write native JSON numbers or booleans.
 - **Keep the metadata consistent.** Leave the target's metadata keys (`METADATA_KEYS`) alone. A transfer should never copy them across. For user presets, keep the sibling `.info` file valid. Check how OrcaSlicer writes it, including any update timestamp or sync fields, before touching it.
-- **Avoid spurious diffs.** Keep the original key order, indentation (profile files use 4 spaces, though some vendor index files use tabs, so match what's in the file), and line endings, so a saved file differs only in the keys that changed.
+- **Avoid spurious diffs.** Keep the original key order, indentation, and line endings, so a saved file differs only in the keys that changed. Formats differ by origin:
+  - Bundled profiles use 4-space indentation.
+  - OrcaSlicer writes user presets with `ConfigBase::save_to_json`: one tab per level (`dump(1, '\t')`) and keys in alphabetical order (nlohmann's ordered map).
+  - Scalar strings such as G-code are written raw (real newlines inside the JSON string). Vector options are arrays of each element's serialized form.
 - **Make saves safe.** Write atomically (temp file, then rename), keep a backup or support undo, and warn that OrcaSlicer may overwrite the file or not pick up the change while it's running. Users should close it, or re-select the preset, before or after saving.
 - **Only copy compatible keys.** Filament keys can only go into filament profiles and process keys into process profiles. Which keys belong to which preset type is defined in `Preset.cpp` and `PresetBundle.cpp`.
 - **Apply every rule per target in a bulk copy.** Each target has its own inheritance chain, so the same copied value can be a new override in one target, redundant in another, and a different array length in a third. Resolve and validate each target on its own. Never assume what's true for one target holds for the rest.

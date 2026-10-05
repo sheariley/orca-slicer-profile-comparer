@@ -10,13 +10,46 @@ describe('createSettingCatalog', () => {
 
   it('prefers the full label over the short tab label', () => {
     const catalog = createSettingCatalog({
-      hot_plate_temp: { label: 'Other layers', fullLabel: 'Bed temperature' },
+      presetTypes: {},
+      settings: { hot_plate_temp: { label: 'Other layers', fullLabel: 'Bed temperature' } },
     });
 
     expect(catalog.describe('hot_plate_temp')?.label).toBe('Bed temperature');
   });
 
   it('returns undefined for unknown keys', () => {
-    expect(createSettingCatalog({}).describe('nope')).toBeUndefined();
+    expect(
+      createSettingCatalog({ presetTypes: {}, settings: {} }).describe('nope'),
+    ).toBeUndefined();
+  });
+
+  it('gives each preset type the defaults of only the settings it owns', () => {
+    const catalog = createSettingCatalog({
+      presetTypes: { filament: ['nozzle_temperature', 'no_default'], process: ['layer_height'] },
+      settings: {
+        nozzle_temperature: { default: ['200'] },
+        layer_height: { default: '0.2' },
+        no_default: {},
+      },
+    });
+
+    expect([...catalog.defaultsFor('filament')]).toEqual([['nozzle_temperature', ['200']]]);
+    expect([...catalog.defaultsFor('process')]).toEqual([['layer_height', '0.2']]);
+    expect(catalog.defaultsFor('machine').size).toBe(0);
+  });
+
+  it('ships the obsolete and renamed keys OrcaSlicer migrates on load', () => {
+    const { obsolete, renamed } = createSettingCatalog().legacyKeys();
+
+    expect(obsolete.has('adaptive_layer_height')).toBe(true);
+    expect(renamed.get('enable_wipe_tower')).toBe('enable_prime_tower');
+  });
+
+  it('ships defaults for real OrcaSlicer settings', () => {
+    const catalog = createSettingCatalog();
+
+    expect(catalog.defaultsFor('process').get('layer_height')).toBe('0.2');
+    expect(catalog.defaultsFor('filament').get('nozzle_temperature')).toEqual(['200']);
+    expect(catalog.defaultsFor('filament').has('layer_height')).toBe(false);
   });
 });

@@ -1,31 +1,67 @@
-// Generates packages/setting-catalog/data/settings.json from a local OrcaSlicer clone.
+// Generates packages/setting-catalog/data/settings.json from a local OrcaSlicer clone: each
+// setting's label, group, tooltip, unit, and built-in default, plus which settings belong to
+// filament and process presets.
 //
-// Usage: pnpm extract-settings [--orca <path to OrcaSlicer clone>]
+// Usage: pnpm extract-settings [--orca <path to OrcaSlicer clone>] [--verbose]
 // The clone defaults to ../OrcaSlicer next to this repo, or the ORCASLICER_DIR env variable.
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { parsePrintConfig } from './parse-print-config.ts';
+import {
+  parseConstants,
+  parseEnumKeys,
+  parseLegacyKeys,
+  parsePresetOptionLists,
+  parsePrintConfig,
+} from './parse-print-config.ts';
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');
-const { values } = parseArgs({ options: { orca: { type: 'string' } } });
+const { values } = parseArgs({
+  options: { orca: { type: 'string' }, verbose: { type: 'boolean', default: false } },
+});
 const orcaDir = path.resolve(
   values.orca ?? process.env['ORCASLICER_DIR'] ?? path.join(repoRoot, '..', 'OrcaSlicer'),
 );
+const libslic3r = (file: string) => readFile(path.join(orcaDir, 'src', 'libslic3r', file), 'utf8');
 
-const source = await readFile(path.join(orcaDir, 'src', 'libslic3r', 'PrintConfig.cpp'), 'utf8');
-const settings = parsePrintConfig(source);
+const [printConfig, constants, preset] = await Promise.all([
+  libslic3r('PrintConfig.cpp'),
+  libslic3r('PrintConfigConstants.hpp'),
+  libslic3r('Preset.cpp'),
+]);
+
+const { settings, skippedDefaults } = parsePrintConfig(printConfig, {
+  enumKeys: parseEnumKeys(printConfig),
+  constants: parseConstants(constants),
+});
+const presetTypes = parsePresetOptionLists(preset);
+const { skippedRules, ...legacy } = parseLegacyKeys(printConfig);
 
 const output = {
   source: { repository: 'OrcaSlicer/OrcaSlicer', commit: gitCommit(orcaDir) },
+  presetTypes,
+  legacy,
   settings: Object.fromEntries([...settings].sort(([a], [b]) => a.localeCompare(b))),
 };
 
 const target = path.join(repoRoot, 'packages', 'setting-catalog', 'data', 'settings.json');
 await mkdir(path.dirname(target), { recursive: true });
 await writeFile(target, `${JSON.stringify(output, null, 2)}\n`);
+
+const withDefaults = [...settings.values()].filter((setting) => setting.default !== undefined);
 console.log(`Wrote ${settings.size} settings to ${path.relative(repoRoot, target)}`);
+console.log(`  ${withDefaults.length} with defaults, ${skippedDefaults.length} defaults skipped`);
+console.log(
+  `  ${presetTypes.process.length} process keys, ${presetTypes.filament.length} filament keys`,
+);
+console.log(
+  `  ${legacy.obsolete.length} obsolete keys, ${Object.keys(legacy.renamed).length} renames, ` +
+    `${skippedRules} legacy rules not extracted`,
+);
+for (const { key, reason } of values.verbose ? skippedDefaults : []) {
+  console.log(`  skipped ${key}: ${reason}`);
+}
 
 function gitCommit(dir: string): string | null {
   try {

@@ -1,4 +1,5 @@
-import type { PresetRef, ProfileDocument, ProfileType } from '../model/profile.ts';
+import type { PresetRef, ProfileDocument, ProfileType, RawValue } from '../model/profile.ts';
+import type { LegacyKeys } from '../resolve/resolve-chain.ts';
 
 /**
  * What a host can do. The app and UI adapt to these flags instead of checking which host
@@ -47,6 +48,13 @@ export interface SettingInfo {
 
 export interface SettingCatalog {
   describe(key: string): SettingInfo | undefined;
+  /**
+   * OrcaSlicer's built-in default for every setting a preset of this type owns. Root presets
+   * (no `inherits`) start from these. Empty for types the catalog doesn't cover.
+   */
+  defaultsFor(type: ProfileType): ReadonlyMap<string, RawValue>;
+  /** The obsolete and renamed keys OrcaSlicer migrates when it loads a profile. */
+  legacyKeys(): LegacyKeys;
 }
 
 /** Persistent user preferences (default filters, recent comparisons, ...). */

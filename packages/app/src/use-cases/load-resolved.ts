@@ -6,15 +6,20 @@ import {
   type ProfileDocument,
   type ProfileRepository,
   type ResolvedProfile,
+  type ResolveOptions,
 } from '@comparer/core';
 
 /** Deeper than any real OrcaSlicer chain; guards against runaway lookups. */
 const MAX_CHAIN_DEPTH = 32;
 
-/** Reads a preset and its ancestors through the repository, then resolves them in core. */
+/**
+ * Reads a preset and its ancestors through the repository, then resolves them in core with
+ * `options` (built-in defaults and legacy key migration).
+ */
 export async function loadResolved(
   repository: ProfileRepository,
   ref: PresetRef,
+  options: ResolveOptions = {},
 ): Promise<ResolvedProfile> {
   const chain: ProfileDocument[] = [];
   const visited = new Set<string>();
@@ -48,5 +53,5 @@ export async function loadResolved(
     }
   }
 
-  return resolveChain(chain);
+  return resolveChain(chain, options);
 }

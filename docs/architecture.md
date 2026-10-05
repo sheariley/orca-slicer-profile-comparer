@@ -31,7 +31,7 @@ The comparer runs the same UI and logic in three places: a Tauri desktop app, an
 
 1. The UI asks `app.compare(left, right)`.
 2. `app` reads each preset through the `ProfileRepository` port, follows its `inherits` chain one parent at a time with `resolveParent`, and collects the raw documents.
-3. `core.resolveChain` merges each chain (nearest preset wins) and records which preset defined each value.
+3. `core.resolveChain` starts from OrcaSlicer's built-in defaults for the preset's type (`SettingCatalog.defaultsFor`), migrates obsolete and renamed keys (`SettingCatalog.legacyKeys`), merges the chain (nearest preset wins), and records where each value came from: a preset, or `'default'`.
 4. `core.diffProfiles` compares the two resolved profiles key by key.
 5. The UI labels each row through the `SettingCatalog` port.
 

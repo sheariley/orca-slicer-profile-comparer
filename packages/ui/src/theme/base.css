@@ -141,6 +141,12 @@ input[type='search'] {
   background: var(--c-changed);
 }
 
+/* A built-in default rather than a value any preset in the chain sets. */
+.diff td.is-default {
+  color: var(--c-muted);
+  font-style: italic;
+}
+
 .setting-key {
   display: block;
   color: var(--c-muted);

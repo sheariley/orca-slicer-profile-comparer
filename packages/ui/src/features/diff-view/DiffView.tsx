@@ -1,32 +1,60 @@
 import type { Comparison } from '@comparer/app';
-import type { NormalizedValue } from '@comparer/core';
+import type { NormalizedValue, ResolvedProfile } from '@comparer/core';
 import { useMemo, useState } from 'react';
 import { useComparerApp } from '../../hooks/useComparerApp.ts';
+import { unitFor } from './format.ts';
 
-function formatValue(value: NormalizedValue | undefined): string {
-  if (value === undefined) return '—';
-  return value.join(', ');
+function ValueCell({
+  profile,
+  settingKey,
+  value,
+  unit,
+}: {
+  profile: ResolvedProfile;
+  settingKey: string;
+  value: NormalizedValue | undefined;
+  unit: string | undefined;
+}) {
+  if (value === undefined) return <td>—</td>;
+  const source = profile.settings.get(settingKey)?.definedBy;
+  const isDefault = source === 'default';
+  const shownUnit = unitFor(value, unit);
+  return (
+    <td
+      className={isDefault ? 'is-default' : undefined}
+      title={isDefault ? "OrcaSlicer's built-in default" : source && `Set in "${source.name}"`}
+    >
+      {value.join(', ')}
+      {shownUnit && <span className="unit"> {shownUnit}</span>}
+    </td>
+  );
 }
 
 export function DiffView({ comparison }: { comparison: Comparison }) {
   const app = useComparerApp();
   const [onlyDifferences, setOnlyDifferences] = useState(true);
+  // Keys the catalog doesn't know are ones OrcaSlicer ignores when it loads a profile
+  // (e.g. leftovers from Bambu Studio in bundled profiles).
+  const [hideUnknown, setHideUnknown] = useState(true);
   const [filter, setFilter] = useState('');
 
-  const rows = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    return comparison.rows
-      .filter((row) => !onlyDifferences || row.status !== 'same')
-      .map((row) => ({ row, info: app.describeSetting(row.key) }))
-      .filter(
-        ({ row, info }) =>
-          needle === '' ||
-          row.key.toLowerCase().includes(needle) ||
-          (info?.label.toLowerCase().includes(needle) ?? false),
-      );
-  }, [app, comparison, filter, onlyDifferences]);
+  const described = useMemo(
+    () => comparison.rows.map((row) => ({ row, info: app.describeSetting(row.key) })),
+    [app, comparison],
+  );
+  const unknownCount = described.filter(({ info }) => !info).length;
+  const candidates = hideUnknown ? described.filter(({ info }) => info) : described;
+  const differenceCount = candidates.filter(({ row }) => row.status !== 'same').length;
 
-  const differenceCount = comparison.rows.filter((row) => row.status !== 'same').length;
+  const needle = filter.trim().toLowerCase();
+  const rows = candidates
+    .filter(({ row }) => !onlyDifferences || row.status !== 'same')
+    .filter(
+      ({ row, info }) =>
+        needle === '' ||
+        row.key.toLowerCase().includes(needle) ||
+        (info?.label.toLowerCase().includes(needle) ?? false),
+    );
 
   return (
     <section className="diff" aria-label="Differences">
@@ -46,6 +74,19 @@ export function DiffView({ comparison }: { comparison: Comparison }) {
           />
           Only differences ({differenceCount})
         </label>
+        {unknownCount > 0 && (
+          <label
+            className="toggle"
+            title="Keys OrcaSlicer doesn't define. It ignores them when it loads a profile."
+          >
+            <input
+              type="checkbox"
+              checked={hideUnknown}
+              onChange={(event) => setHideUnknown(event.target.checked)}
+            />
+            Hide settings OrcaSlicer doesn't use ({unknownCount})
+          </label>
+        )}
       </div>
       <table>
         <colgroup>
@@ -67,14 +108,18 @@ export function DiffView({ comparison }: { comparison: Comparison }) {
                 <span className="setting-label">{info?.label ?? row.key}</span>
                 {info && info.label !== row.key && <code className="setting-key">{row.key}</code>}
               </th>
-              <td>
-                {formatValue(row.left)}
-                {row.left && info?.unit && <span className="unit"> {info.unit}</span>}
-              </td>
-              <td>
-                {formatValue(row.right)}
-                {row.right && info?.unit && <span className="unit"> {info.unit}</span>}
-              </td>
+              <ValueCell
+                profile={comparison.left}
+                settingKey={row.key}
+                value={row.left}
+                unit={info?.unit}
+              />
+              <ValueCell
+                profile={comparison.right}
+                settingKey={row.key}
+                value={row.right}
+                unit={info?.unit}
+              />
             </tr>
           ))}
         </tbody>
