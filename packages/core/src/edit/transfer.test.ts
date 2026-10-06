@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ProfileDocument, ProfileType } from '../model/profile.ts';
 import type { KeyRules } from '../ports/ports.ts';
-import { resolveChain, type ResolvedProfile } from '../resolve/resolve-chain.ts';
-import { fitToVariants, planTransfer, type TransferTarget } from './transfer.ts';
+import { resolveChain, type LegacyKeys, type ResolvedProfile } from '../resolve/resolve-chain.ts';
+import { fitToVariants, planTransfer, variantIdentities, type TransferTarget } from './transfer.ts';
 
 const doc = (
   name: string,
@@ -25,15 +25,33 @@ const rules: KeyRules = {
 };
 
 /** A target from its own document and (optionally) its parent, as the app layer builds it. */
-function target(own: ProfileDocument, parent?: ProfileDocument): TransferTarget {
+function target(
+  own: ProfileDocument,
+  parent?: ProfileDocument,
+  options: { rules?: KeyRules; legacyKeys?: LegacyKeys } = {},
+): TransferTarget {
   const chain = parent ? [own, parent] : [own];
+  const resolveOptions = options.legacyKeys ? { legacyKeys: options.legacyKeys } : {};
   return {
     document: own,
-    resolved: resolveChain(chain),
-    inherited: parent ? resolveChain([parent]).settings : new Map(),
-    rules,
+    resolved: resolveChain(chain, resolveOptions),
+    inherited: parent ? resolveChain([parent], resolveOptions).settings : new Map(),
+    rules: options.rules ?? rules,
   };
 }
+
+const processRules: KeyRules = {
+  owned: new Set(),
+  perVariant: new Set(['outer_wall_speed', 'print_extruder_id', 'print_extruder_variant']),
+};
+
+/** A process with per-extruder variants, like Bambu's dual-extruder H2D profiles. */
+const process = (name: string, ids: string[], variants: string[], speeds: string[]) =>
+  doc(
+    name,
+    { print_extruder_id: ids, print_extruder_variant: variants, outer_wall_speed: speeds },
+    'process',
+  );
 
 const source: ResolvedProfile = resolveChain([
   doc('Source', {
@@ -159,6 +177,111 @@ describe('planTransfer', () => {
       ['filament_start_gcode', 'fan_max_speed'],
     ]);
     expect(plan.targets[0]!.changes[0]!.change).toEqual({ kind: 'set', value: ['M104\nG28'] });
+  });
+});
+
+describe('planTransfer: variants, shapes, and legacy keys', () => {
+  it("never copies a process's extruder ids, which pair with its variant names", () => {
+    const dual = resolveChain([process('Dual', ['1', '2'], ['Std', 'Std'], ['100', '80'])]);
+
+    const plan = planTransfer(
+      dual,
+      ['print_extruder_id', 'print_extruder_variant'],
+      [target(process('Single', ['1'], ['Std'], ['90']), undefined, { rules: processRules })],
+    );
+
+    expect(plan.targets[0]!.skipped).toEqual([
+      { key: 'print_extruder_id', reason: 'variant-list' },
+      { key: 'print_extruder_variant', reason: 'variant-list' },
+    ]);
+  });
+
+  it('matches process variants by extruder and name, so extruders never swap values', () => {
+    const source = resolveChain([
+      process('H2D', ['1', '1', '2', '2'], ['Std', 'HF', 'Std', 'HF'], ['100', '120', '80', '90']),
+    ]);
+    const sameLayout = process(
+      'A',
+      ['1', '1', '2', '2'],
+      ['Std', 'HF', 'Std', 'HF'],
+      ['1', '1', '1', '1'],
+    );
+    const reordered = process(
+      'B',
+      ['2', '2', '1', '1'],
+      ['HF', 'Std', 'HF', 'Std'],
+      ['1', '1', '1', '1'],
+    );
+
+    const plan = planTransfer(
+      source,
+      ['outer_wall_speed'],
+      [
+        target(sameLayout, undefined, { rules: processRules }),
+        target(reordered, undefined, { rules: processRules }),
+      ],
+    );
+
+    expect(plan.targets.map((t) => t.changes[0]!.change)).toEqual([
+      { kind: 'set', value: ['100', '120', '80', '90'] },
+      { kind: 'set', value: ['90', '80', '120', '100'] },
+    ]);
+  });
+
+  it('identifies variants by name alone for filaments, which have no extruder ids', () => {
+    const filament = resolveChain([doc('F', { filament_extruder_variant: ['Std', 'HF'] })]);
+    expect(variantIdentities(filament)).toEqual(['Std', 'HF']);
+  });
+
+  it('treats an empty variant list as no list (one variant), never emptying arrays', () => {
+    const empty = doc('Empty', { filament_extruder_variant: [], filament_flow_ratio: ['1'] });
+    const twoVariants = resolveChain([
+      doc('Two', { filament_extruder_variant: ['A', 'B'], filament_flow_ratio: ['0.9', '0.8'] }),
+    ]);
+
+    const plan = planTransfer(twoVariants, ['filament_flow_ratio'], [target(empty)]);
+
+    expect(plan.targets[0]!.changes).toEqual([
+      { key: 'filament_flow_ratio', change: { kind: 'set', value: ['0.9'] } },
+    ]);
+  });
+
+  it('writes an array when a multi-element value meets a target that stores a plain string', () => {
+    const dual = resolveChain([
+      doc('Dual', { filament_extruder_variant: ['Std', 'HF'], nozzle_temperature: ['215', '230'] }),
+    ]);
+    const scalarTarget = doc('Old', {
+      filament_extruder_variant: ['Std', 'HF'],
+      nozzle_temperature: '220',
+    });
+
+    const plan = planTransfer(dual, ['nozzle_temperature'], [target(scalarTarget)]);
+
+    expect(plan.targets[0]!.changes).toEqual([
+      { key: 'nozzle_temperature', change: { kind: 'set', value: ['215', '230'] } },
+    ]);
+  });
+
+  it('plans against the keys the file really holds, including old (renamed) names', () => {
+    const legacyKeys: LegacyKeys = {
+      obsolete: new Set(),
+      renamed: new Map([['old_temperature', 'nozzle_temperature']]),
+    };
+    const parent = doc('Parent', { nozzle_temperature: ['215'] });
+    const own = doc('Child', { inherits: 'Parent', old_temperature: ['240'] });
+    const withLegacy = target(own, parent, { legacyKeys });
+
+    const redundant = planTransfer(source, ['nozzle_temperature'], [withLegacy], { legacyKeys });
+    expect(redundant.targets[0]!.changes).toEqual([
+      { key: 'old_temperature', change: { kind: 'remove' } },
+    ]);
+
+    const hotter = resolveChain([doc('Hot', { nozzle_temperature: ['250'] })]);
+    const changed = planTransfer(hotter, ['nozzle_temperature'], [withLegacy], { legacyKeys });
+    expect(changed.targets[0]!.changes).toEqual([
+      { key: 'nozzle_temperature', change: { kind: 'set', value: ['250'] } },
+      { key: 'old_temperature', change: { kind: 'remove' } },
+    ]);
   });
 });
 

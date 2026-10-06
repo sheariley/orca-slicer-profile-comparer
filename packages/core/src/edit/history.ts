@@ -67,21 +67,21 @@ export function pendingEdits(
   const result: PendingEdits[] = [];
   for (const { target, changes } of latest.values()) {
     const original = originals.get(target.id)?.content ?? {};
-    const set: Record<string, RawValue> = {};
+    const toSet: [string, RawValue][] = [];
     const remove: string[] = [];
     for (const [key, value] of changes) {
-      const had = key in original;
+      const had = Object.hasOwn(original, key);
       if (value === null) {
         if (had) remove.push(key);
       } else if (!had || !sameRaw(value, original[key])) {
-        set[key] = value;
+        toSet.push([key, value]);
       }
     }
-    if (Object.keys(set).length > 0 || remove.length > 0) {
+    if (toSet.length > 0 || remove.length > 0) {
       result.push({
         target,
         edits: {
-          ...(Object.keys(set).length > 0 ? { set } : {}),
+          ...(toSet.length > 0 ? { set: Object.fromEntries(toSet) } : {}),
           ...(remove.length > 0 ? { remove } : {}),
         },
       });

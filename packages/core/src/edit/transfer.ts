@@ -7,16 +7,21 @@ import {
 } from '../model/profile.ts';
 import { valuesEqual, type NormalizedValue } from '../normalize/normalize-value.ts';
 import type { KeyRules } from '../ports/ports.ts';
-import type { ResolvedProfile } from '../resolve/resolve-chain.ts';
+import type { LegacyKeys, ResolvedProfile } from '../resolve/resolve-chain.ts';
 
 /**
- * The setting that lists a preset's extruder variants (e.g. "Direct Drive Standard",
- * "Direct Drive High Flow"), per type. It defines the shape of every per-variant array, so
- * copies never change it.
+ * The settings that define a preset's extruder variants, per type: the variant names (e.g.
+ * "Direct Drive Standard") and, for processes, the extruder each variant belongs to.
+ * OrcaSlicer pairs the two (`Preset::get_extruder_names_and_keysets`): on a dual-extruder printer
+ * the names repeat once per extruder. Filaments have no extruder ids (`filament_extruder_id` is
+ * commented out in OrcaSlicer). These define the shape of every per-variant array, so copies
+ * never change them.
  */
-export const VARIANT_LIST_KEYS: Readonly<Partial<Record<ProfileType, string>>> = {
-  filament: 'filament_extruder_variant',
-  process: 'print_extruder_variant',
+export const VARIANT_KEYS: Readonly<
+  Partial<Record<ProfileType, { readonly names: string; readonly extruderIds?: string }>>
+> = {
+  filament: { names: 'filament_extruder_variant' },
+  process: { names: 'print_extruder_variant', extruderIds: 'print_extruder_id' },
 };
 
 /** Everything planTransfer needs to know about one target. */
@@ -33,10 +38,19 @@ export interface TransferTarget {
   readonly rules: KeyRules;
 }
 
+export interface TransferOptions {
+  /**
+   * OrcaSlicer's renames (see SettingCatalog.legacyKeys). A target file may still hold a setting
+   * under its old name; changes are planned against the file's real keys, so the old key is
+   * removed when the setting is written or its override dropped.
+   */
+  readonly legacyKeys?: LegacyKeys;
+}
+
 export type SkipReason =
   /** A key that describes the file, not a setting (METADATA_KEYS). */
   | 'metadata'
-  /** The variant list itself (VARIANT_LIST_KEYS). */
+  /** A setting that defines the variants: their names or extruder ids (VARIANT_KEYS). */
   | 'variant-list'
   /** A setting the target's preset type doesn't own (e.g. a process setting on a filament). */
   | 'not-owned'
@@ -48,6 +62,7 @@ export type SkipReason =
 export type Change =
   { readonly kind: 'set'; readonly value: RawValue } | { readonly kind: 'remove' };
 
+/** A change to one key of the target's file. `key` is the key as the file holds it. */
 export interface KeyChange {
   readonly key: string;
   readonly change: Change;
@@ -71,34 +86,43 @@ export interface TransferPlan {
 /**
  * Plans copying `keys` from `source` to each target. One code path serves one setting or many,
  * and one target or many. Per target and key:
- * - metadata keys, the variant list, settings the target's type doesn't own, and keys the
- *   source lacks are skipped, with the reason;
+ * - metadata keys, the variant-defining settings, settings the target's type doesn't own, and
+ *   keys the source lacks are skipped, with the reason;
  * - per-variant settings are fitted to the target's variants (see fitToVariants);
  * - a value the target already has is skipped;
  * - a value equal to what the target would inherit removes the target's own override instead of
  *   writing a redundant one;
- * - otherwise the value is set, in the shape (array or plain string) the target uses.
+ * - otherwise the value is set, in the shape (array or plain string) the target uses. A value
+ *   with several elements is always written as an array.
  */
 export function planTransfer(
   source: ResolvedProfile,
   keys: readonly string[],
   targets: readonly TransferTarget[],
+  options: TransferOptions = {},
 ): TransferPlan {
-  return { targets: targets.map((target) => planTarget(source, keys, target)) };
+  const sourceVariants = variantIdentities(source);
+  const oldNames = oldNamesByKey(options.legacyKeys);
+  return {
+    targets: targets.map((target) => planTarget(source, sourceVariants, keys, target, oldNames)),
+  };
 }
 
 function planTarget(
   source: ResolvedProfile,
+  sourceVariants: readonly string[] | undefined,
   keys: readonly string[],
   target: TransferTarget,
+  oldNames: ReadonlyMap<string, readonly string[]>,
 ): TargetPlan {
   const changes: KeyChange[] = [];
   const skipped: KeySkip[] = [];
-  const type = target.resolved.ref.type;
-  const variantListKey = VARIANT_LIST_KEYS[type];
+  const content = target.document.content;
+  const targetVariants = variantIdentities(target.resolved);
+  const variantKeys = VARIANT_KEYS[target.resolved.ref.type];
 
   for (const key of keys) {
-    const reason = ruleOut(key, target.rules, variantListKey);
+    const reason = ruleOut(key, target.rules, variantKeys);
     const sourceSetting = source.settings.get(key);
     if (reason || !sourceSetting) {
       skipped.push({ key, reason: reason ?? 'missing-in-source' });
@@ -106,11 +130,7 @@ function planTarget(
     }
 
     const value = target.rules.perVariant.has(key)
-      ? fitToVariants(
-          sourceSetting.value,
-          variantsOf(source, VARIANT_LIST_KEYS[source.ref.type]),
-          variantsOf(target.resolved, variantListKey),
-        )
+      ? fitToVariants(sourceSetting.value, sourceVariants, targetVariants)
       : sourceSetting.value;
 
     const current = target.resolved.settings.get(key);
@@ -119,14 +139,22 @@ function planTarget(
       continue;
     }
 
+    // The keys the target's file holds this setting under: its current name and any old ones.
+    const ownKeys = [key, ...(oldNames.get(key) ?? [])].filter((k) => Object.hasOwn(content, k));
+    const removeOwn = (except?: string) =>
+      ownKeys
+        .filter((k) => k !== except)
+        .forEach((k) => changes.push({ key: k, change: { kind: 'remove' } }));
+
     const inherited = target.inherited.get(key);
-    if (inherited && valuesEqual(value, inherited.value) && key in target.document.content) {
-      changes.push({ key, change: { kind: 'remove' } });
+    if (inherited && valuesEqual(value, inherited.value) && ownKeys.length > 0) {
+      removeOwn();
       continue;
     }
 
-    const isVector = current?.isVector ?? sourceSetting.isVector;
+    const isVector = (current?.isVector ?? sourceSetting.isVector) || value.length > 1;
     changes.push({ key, change: { kind: 'set', value: isVector ? value : (value[0] ?? '') } });
+    removeOwn(key);
   }
 
   return { target: target.resolved.ref, changes, skipped };
@@ -136,36 +164,54 @@ function planTarget(
 function ruleOut(
   key: string,
   rules: KeyRules,
-  variantListKey: string | undefined,
+  variantKeys: (typeof VARIANT_KEYS)[ProfileType],
 ): SkipReason | undefined {
   if (METADATA_KEYS.has(key)) return 'metadata';
-  if (key === variantListKey) return 'variant-list';
+  if (key === variantKeys?.names || key === variantKeys?.extruderIds) return 'variant-list';
   if (rules.owned.size > 0 && !rules.owned.has(key)) return 'not-owned';
   return undefined;
 }
 
-function variantsOf(
-  profile: ResolvedProfile,
-  key: string | undefined,
-): NormalizedValue | undefined {
-  return key === undefined ? undefined : profile.settings.get(key)?.value;
+/**
+ * Identifies each of a preset's variants: its name, paired with its extruder id where the type
+ * has one (so "Standard" on extruder 1 and "Standard" on extruder 2 stay distinct). Undefined
+ * when the preset doesn't list its variants, or lists none (it then has one variant).
+ */
+export function variantIdentities(profile: ResolvedProfile): string[] | undefined {
+  const keys = VARIANT_KEYS[profile.ref.type];
+  const names = keys && profile.settings.get(keys.names)?.value;
+  if (!names || names.length === 0) return undefined;
+  const ids = keys.extruderIds ? profile.settings.get(keys.extruderIds)?.value : undefined;
+  return ids && ids.length === names.length
+    ? names.map((name, index) => `${ids[index]}:${name}`)
+    : [...names];
+}
+
+/** Current key → the old names OrcaSlicer still reads it from. */
+function oldNamesByKey(legacyKeys: LegacyKeys | undefined): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (const [oldName, current] of legacyKeys?.renamed ?? []) {
+    result.set(current, [...(result.get(current) ?? []), oldName]);
+  }
+  return result;
 }
 
 /**
- * Fits a per-variant array to the target's variants.
- * - When both presets name their variants and the source has every one the target has, values
- *   are matched by name, so a "High Flow" value never lands in a "Standard" slot.
+ * Fits a per-variant array to the target's variants (see variantIdentities).
+ * - When both presets identify their variants and the source has every one the target has,
+ *   values are matched by identity, so a "High Flow" value never lands in a "Standard" slot and
+ *   one extruder's values never land on the other.
  * - Otherwise it's resized the way OrcaSlicer resizes these arrays when it loads a preset
  *   (`extend_default_config_length` → `ConfigOptionVector::resize`): truncated, or padded by
  *   repeating the first value. A preset without a variant list has one variant.
  */
 export function fitToVariants(
   value: NormalizedValue,
-  sourceVariants: NormalizedValue | undefined,
-  targetVariants: NormalizedValue | undefined,
+  sourceVariants: readonly string[] | undefined,
+  targetVariants: readonly string[] | undefined,
 ): NormalizedValue {
   if (sourceVariants && targetVariants && value.length === sourceVariants.length) {
-    const indexes = targetVariants.map((name) => sourceVariants.indexOf(name));
+    const indexes = targetVariants.map((variant) => sourceVariants.indexOf(variant));
     if (indexes.every((index) => index >= 0)) return indexes.map((index) => value[index]!);
   }
   const length = targetVariants?.length ?? 1;

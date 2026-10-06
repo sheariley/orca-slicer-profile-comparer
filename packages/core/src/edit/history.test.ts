@@ -107,6 +107,17 @@ describe('pendingEdits', () => {
     ]);
   });
 
+  it("doesn't mistake built-in object members for keys the file has", () => {
+    const history = record(
+      emptyHistory,
+      batch('a', { PLA: { constructor: remove, toString: set(['1']) } }),
+    );
+
+    expect(pendingEdits(history, originals)).toEqual([
+      { target: ref('PLA'), edits: { set: { toString: ['1'] } } },
+    ]);
+  });
+
   it('ignores undone batches', () => {
     const history = undo(record(emptyHistory, batch('a', { PLA: { fan: set(['50']) } })));
 
