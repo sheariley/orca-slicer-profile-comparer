@@ -21,6 +21,7 @@ const batch = (label: string, targets: Record<string, Record<string, Change>>): 
       target: ref(name),
       changes: Object.entries(changes).map(([key, change]) => ({ key, change })),
       skipped: [],
+      redundantOverrides: [],
     })),
   },
 });

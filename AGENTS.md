@@ -57,6 +57,7 @@ These apply to every host (desktop, plugin, playground). When a rule here confli
 
 - **One-click transfer** of a value in either direction.
 - **Always show unsaved changes,** offer undo, and confirm before saving.
+- **Ask about redundant overrides with an "Pin override" checkbox** on each affected setting, in the preview of a copy (see "Writing profiles back"). Its tooltip (an `InfoTip`) explains the trade-off: keeping the override pins the value, so changes to the parent no longer reach it; unchecking re-links it to the parent.
 - **Bulk copy:** pick one or more settings in a source profile and copy them to many targets of the same type in one action.
   - Choose targets from the preset browser, with multi-select, filters (vendor, printer, user vs. system), and select-all.
   - Before applying, preview each target: the current value, the new value, and which targets already match and will be skipped.
@@ -336,7 +337,13 @@ Paths are relative to the OrcaSlicer repo root.
 
 `core/edit/` implements the transfer rules below (`planTransfer`), and the edit history (batches, undo/redo, and `pendingEdits`, the net edits per target that saving writes through `core/serialize/`). The app layer builds each target's state: its own document, its resolved settings, and what it would inherit without its own overrides (its parent's resolved settings, or the built-in defaults for a root). When planning a new batch on top of pending edits, it must build that state from the edited documents.
 
-- **Write to the profile's own file, not the resolved view.** Copying a value into a profile that inherits means adding or updating that key as an override in its own JSON. Don't flatten the whole inheritance chain into the file. If the copied value equals what the profile would inherit anyway, remove the override instead of writing a redundant key (implemented).
+- **Write to the profile's own file, not the resolved view.** Copying a value into a profile that inherits means adding or updating that key as an override in its own JSON. Don't flatten the whole inheritance chain into the file.
+- **Let the user decide about redundant overrides ("Pin override").** When the target overrides a setting and the copied value equals what it would inherit, the override is redundant today, but it still pins the value: later changes to the parent won't reach it. Both choices are valid, so the user decides per setting:
+  - Keeping the override ("Pin override" checked) writes the value as an override.
+  - Dropping it (unchecked) removes the override, re-linking the setting to the parent.
+  - The defaults change no more than the copy requires. An override that already holds the value stays (checked), so the file is untouched. One with a different value is dropped (unchecked), since the copy changes that setting anyway.
+  - Where the target has no override of its own, there's no choice to make.
+  - `planTransfer` lists these settings in each target plan's `redundantOverrides`, with the current choice. It takes the user's choices through `options.keepOverride`, and the UI re-plans when a checkbox changes.
 - **System profiles are effectively read-only.** Files under `resources/profiles/` (and OrcaSlicer's installed or cached copies) get replaced on app updates. Saving should target user presets. If the target is a system preset, offer to save as a new user preset that `inherits` from it.
 - **Keep OrcaSlicer's value format.** Write values back as strings or string arrays, in the shape the target already uses for that key (or the source's, if the target has none). A value with several elements is always written as an array, even if the target stored a plain string. Never write native JSON numbers or booleans.
 - **Fit per-variant settings to the target's variants.** OrcaSlicer stores some settings once per extruder variant (e.g. `nozzle_temperature`, `filament_flow_ratio`, `fan_max_speed`). The catalog's `keyRules(type).perVariant` lists them, from `filament_options_with_variant` / `print_options_with_variant` in `PrintConfig.cpp`. A preset's variants are listed in `filament_extruder_variant` / `print_extruder_variant` (e.g. "Direct Drive Standard", "Direct Drive High Flow"); without that list, or with an empty one, a preset has one variant.
