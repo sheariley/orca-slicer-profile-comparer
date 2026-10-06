@@ -45,6 +45,26 @@ export interface TransferOptions {
    * removed when the setting is written or its override dropped.
    */
   readonly legacyKeys?: LegacyKeys;
+  /**
+   * The user's "Pin override" choice for a redundant override (see RedundantOverride): true
+   * keeps the setting overridden, false re-links it to the parent. Return undefined (or omit
+   * the option) for the default (see RedundantOverride.keep).
+   */
+  readonly keepOverride?: (target: PresetRef, key: string) => boolean | undefined;
+}
+
+/**
+ * A setting where the copy would leave the target overriding the very value it inherits. The
+ * user decides ("Pin override"): keeping the override pins the value, so later changes to the
+ * parent no longer reach it; dropping it re-links the setting to the parent.
+ */
+export interface RedundantOverride {
+  readonly key: string;
+  /**
+   * Whether the override is kept. By default it is when it already holds the value (the file
+   * stays untouched), and it isn't when it holds a different value (the copy changes it anyway).
+   */
+  readonly keep: boolean;
 }
 
 export type SkipReason =
@@ -77,6 +97,8 @@ export interface TargetPlan {
   readonly target: PresetRef;
   readonly changes: readonly KeyChange[];
   readonly skipped: readonly KeySkip[];
+  /** Keys that need an "Pin override" choice; each also appears in changes or skipped. */
+  readonly redundantOverrides: readonly RedundantOverride[];
 }
 
 export interface TransferPlan {
@@ -90,8 +112,9 @@ export interface TransferPlan {
  *   keys the source lacks are skipped, with the reason;
  * - per-variant settings are fitted to the target's variants (see fitToVariants);
  * - a value the target already has is skipped;
- * - a value equal to what the target would inherit removes the target's own override instead of
- *   writing a redundant one;
+ * - where the target overrides the key and the copied value equals what it would inherit, the
+ *   user chooses (options.keepOverride) between keeping the override and re-linking to the
+ *   parent (see RedundantOverride for the defaults);
  * - otherwise the value is set, in the shape (array or plain string) the target uses. A value
  *   with several elements is always written as an array.
  */
@@ -104,7 +127,9 @@ export function planTransfer(
   const sourceVariants = variantIdentities(source);
   const oldNames = oldNamesByKey(options.legacyKeys);
   return {
-    targets: targets.map((target) => planTarget(source, sourceVariants, keys, target, oldNames)),
+    targets: targets.map((target) =>
+      planTarget(source, sourceVariants, keys, target, oldNames, options.keepOverride),
+    ),
   };
 }
 
@@ -114,9 +139,12 @@ function planTarget(
   keys: readonly string[],
   target: TransferTarget,
   oldNames: ReadonlyMap<string, readonly string[]>,
+  keepOverride: TransferOptions['keepOverride'],
 ): TargetPlan {
   const changes: KeyChange[] = [];
   const skipped: KeySkip[] = [];
+  const redundantOverrides: RedundantOverride[] = [];
+  const ref = target.resolved.ref;
   const content = target.document.content;
   const targetVariants = variantIdentities(target.resolved);
   const variantKeys = VARIANT_KEYS[target.resolved.ref.type];
@@ -133,12 +161,6 @@ function planTarget(
       ? fitToVariants(sourceSetting.value, sourceVariants, targetVariants)
       : sourceSetting.value;
 
-    const current = target.resolved.settings.get(key);
-    if (current && valuesEqual(value, current.value)) {
-      skipped.push({ key, reason: 'already-equal' });
-      continue;
-    }
-
     // The keys the target's file holds this setting under: its current name and any old ones.
     const ownKeys = [key, ...(oldNames.get(key) ?? [])].filter((k) => Object.hasOwn(content, k));
     const removeOwn = (except?: string) =>
@@ -146,9 +168,21 @@ function planTarget(
         .filter((k) => k !== except)
         .forEach((k) => changes.push({ key: k, change: { kind: 'remove' } }));
 
+    const current = target.resolved.settings.get(key);
+    const alreadyThere = current !== undefined && valuesEqual(value, current.value);
     const inherited = target.inherited.get(key);
-    if (inherited && valuesEqual(value, inherited.value) && ownKeys.length > 0) {
-      removeOwn();
+    if (ownKeys.length > 0 && inherited && valuesEqual(value, inherited.value)) {
+      // Default: change no more than the copy requires. Keep an override that already has this
+      // value; drop one that would otherwise be rewritten to the inherited value.
+      const keep = keepOverride?.(ref, key) ?? alreadyThere;
+      redundantOverrides.push({ key, keep });
+      if (!keep) {
+        removeOwn();
+        continue;
+      }
+    }
+    if (alreadyThere) {
+      skipped.push({ key, reason: 'already-equal' });
       continue;
     }
 
@@ -157,7 +191,7 @@ function planTarget(
     removeOwn(key);
   }
 
-  return { target: target.resolved.ref, changes, skipped };
+  return { target: ref, changes, skipped, redundantOverrides };
 }
 
 /** Keys that are never copied to this target, whatever the values. */

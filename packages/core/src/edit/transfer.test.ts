@@ -75,6 +75,7 @@ describe('planTransfer', () => {
       target: expect.objectContaining({ name: 'Target' }),
       changes: [{ key: 'nozzle_temperature', change: { kind: 'set', value: ['215'] } }],
       skipped: [],
+      redundantOverrides: [],
     });
   });
 
@@ -89,7 +90,7 @@ describe('planTransfer', () => {
     expect(plan.targets[0]!.changes).toEqual([]);
   });
 
-  it('removes the override when the copied value is what the target would inherit', () => {
+  it('re-links to the parent by default when the copied value is what the target inherits', () => {
     const parent = doc('Parent', { nozzle_temperature: ['215'] });
     const own = doc('Child', { inherits: 'Parent', nozzle_temperature: ['240'] });
 
@@ -97,6 +98,58 @@ describe('planTransfer', () => {
 
     expect(plan.targets[0]!.changes).toEqual([
       { key: 'nozzle_temperature', change: { kind: 'remove' } },
+    ]);
+    expect(plan.targets[0]!.redundantOverrides).toEqual([
+      { key: 'nozzle_temperature', keep: false },
+    ]);
+  });
+
+  it('keeps the override, pinning the value, when the user chooses "Pin override"', () => {
+    const parent = doc('Parent', { nozzle_temperature: ['215'] });
+    const own = doc('Child', { inherits: 'Parent', nozzle_temperature: ['240'] });
+
+    const plan = planTransfer(source, ['nozzle_temperature'], [target(own, parent)], {
+      keepOverride: (ref, key) => ref.name === 'Child' && key === 'nozzle_temperature',
+    });
+
+    expect(plan.targets[0]!.changes).toEqual([
+      { key: 'nozzle_temperature', change: { kind: 'set', value: ['215'] } },
+    ]);
+    expect(plan.targets[0]!.redundantOverrides).toEqual([
+      { key: 'nozzle_temperature', keep: true },
+    ]);
+  });
+
+  it('leaves an existing redundant override alone by default, and drops it on request', () => {
+    // The child already overrides with the value it would inherit (review finding #7).
+    const parent = doc('Parent', { nozzle_temperature: ['215'] });
+    const own = doc('Child', { inherits: 'Parent', nozzle_temperature: ['215'] });
+
+    const byDefault = planTransfer(source, ['nozzle_temperature'], [target(own, parent)]);
+    expect(byDefault.targets[0]).toMatchObject({
+      changes: [],
+      skipped: [{ key: 'nozzle_temperature', reason: 'already-equal' }],
+      redundantOverrides: [{ key: 'nozzle_temperature', keep: true }],
+    });
+
+    const relinked = planTransfer(source, ['nozzle_temperature'], [target(own, parent)], {
+      keepOverride: () => false,
+    });
+    expect(relinked.targets[0]).toMatchObject({
+      changes: [{ key: 'nozzle_temperature', change: { kind: 'remove' } }],
+      redundantOverrides: [{ key: 'nozzle_temperature', keep: false }],
+    });
+  });
+
+  it('offers no choice when the target has no override of its own', () => {
+    const parent = doc('Parent', { nozzle_temperature: ['215'] });
+    const own = doc('Child', { inherits: 'Parent' });
+
+    const plan = planTransfer(source, ['nozzle_temperature'], [target(own, parent)]);
+
+    expect(plan.targets[0]!.redundantOverrides).toEqual([]);
+    expect(plan.targets[0]!.skipped).toEqual([
+      { key: 'nozzle_temperature', reason: 'already-equal' },
     ]);
   });
 
