@@ -1,4 +1,5 @@
 import type {
+  KeyRules,
   LegacyKeys,
   ProfileType,
   RawValue,
@@ -23,6 +24,8 @@ export interface CatalogData {
   /** The settings each preset type owns (OrcaSlicer's Preset.cpp option lists). */
   readonly presetTypes: Readonly<Partial<Record<ProfileType, readonly string[]>>>;
   readonly settings: Readonly<Record<string, CatalogEntry>>;
+  /** Settings stored once per extruder variant (`*_options_with_variant` in PrintConfig.cpp). */
+  readonly variantKeys?: Readonly<Partial<Record<ProfileType, readonly string[]>>>;
   /** OrcaSlicer's handle_legacy: keys it discards, and old keys it renames. */
   readonly legacy?: {
     readonly obsolete: readonly string[];
@@ -32,6 +35,7 @@ export interface CatalogData {
 
 export function createSettingCatalog(data: CatalogData = generated): SettingCatalog {
   const defaultsByType = new Map<ProfileType, ReadonlyMap<string, RawValue>>();
+  const keyRulesByType = new Map<ProfileType, KeyRules>();
   const legacyKeys: LegacyKeys = {
     obsolete: new Set(data.legacy?.obsolete),
     renamed: new Map(Object.entries(data.legacy?.renamed ?? {})),
@@ -67,5 +71,17 @@ export function createSettingCatalog(data: CatalogData = generated): SettingCata
     },
 
     legacyKeys: () => legacyKeys,
+
+    keyRules(type) {
+      let rules = keyRulesByType.get(type);
+      if (!rules) {
+        rules = {
+          owned: new Set(data.presetTypes[type]),
+          perVariant: new Set(data.variantKeys?.[type]),
+        };
+        keyRulesByType.set(type, rules);
+      }
+      return rules;
+    },
   };
 }

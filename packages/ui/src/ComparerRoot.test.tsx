@@ -33,6 +33,7 @@ function renderComparer(canSave = false) {
             : { key, label: key },
       defaultsFor: () => new Map([['filament_density', ['1.24']]]),
       legacyKeys: () => ({ obsolete: new Set<string>(), renamed: new Map<string, string>() }),
+      keyRules: () => ({ owned: new Set<string>(), perVariant: new Set<string>() }),
     },
   });
   return render(<ComparerRoot app={app} />);

@@ -119,6 +119,26 @@ function filamentOverrideKeys(source: string): string[] {
   return match ? [...match[1]!.matchAll(/"(filament_\w+)"/g)].map((key) => key[1]!) : [];
 }
 
+/**
+ * Reads the sets of settings stored once per extruder variant (`print_options_with_variant`,
+ * `filament_options_with_variant`). OrcaSlicer resizes these arrays to the length of the
+ * preset's own variant list (`extend_default_config_length` in Preset.cpp).
+ */
+export function parseVariantKeys(source: string): { process: string[]; filament: string[] } {
+  const code = stripComments(source);
+  const set = (name: string) => {
+    const match = new RegExp(`std::set<std::string>\\s+${name}\\s*=\\s*\\{([\\s\\S]*?)\\};`).exec(
+      code,
+    );
+    if (!match) throw new Error(`PrintConfig.cpp has no ${name} set.`);
+    return [...match[1]!.matchAll(/"(\w+)"/g)].map((key) => key[1]!);
+  };
+  return {
+    process: set('print_options_with_variant'),
+    filament: set('filament_options_with_variant'),
+  };
+}
+
 export interface LegacyKeys {
   /** Keys OrcaSlicer discards when it loads a preset. */
   readonly obsolete: string[];

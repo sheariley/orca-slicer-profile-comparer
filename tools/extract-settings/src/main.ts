@@ -14,6 +14,7 @@ import {
   parseLegacyKeys,
   parsePresetOptionLists,
   parsePrintConfig,
+  parseVariantKeys,
 } from './parse-print-config.ts';
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');
@@ -37,10 +38,12 @@ const { settings, skippedDefaults } = parsePrintConfig(printConfig, {
 });
 const presetTypes = parsePresetOptionLists(preset);
 const { skippedRules, ...legacy } = parseLegacyKeys(printConfig);
+const variantKeys = parseVariantKeys(printConfig);
 
 const output = {
   source: { repository: 'OrcaSlicer/OrcaSlicer', commit: gitCommit(orcaDir) },
   presetTypes,
+  variantKeys,
   legacy,
   settings: Object.fromEntries([...settings].sort(([a], [b]) => a.localeCompare(b))),
 };
@@ -54,6 +57,9 @@ console.log(`Wrote ${settings.size} settings to ${path.relative(repoRoot, target
 console.log(`  ${withDefaults.length} with defaults, ${skippedDefaults.length} defaults skipped`);
 console.log(
   `  ${presetTypes.process.length} process keys, ${presetTypes.filament.length} filament keys`,
+);
+console.log(
+  `  ${variantKeys.process.length} process and ${variantKeys.filament.length} filament per-variant keys`,
 );
 console.log(
   `  ${legacy.obsolete.length} obsolete keys, ${Object.keys(legacy.renamed).length} renames, ` +

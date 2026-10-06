@@ -10,6 +10,8 @@ import { normalizeValue, type NormalizedValue } from '../normalize/normalize-val
 /** One resolved setting and where it came from: a preset in the chain, or a built-in default. */
 export interface ResolvedSetting {
   readonly value: NormalizedValue;
+  /** Whether the profile stores it as an array (most settings) or a plain string. */
+  readonly isVector: boolean;
   readonly definedBy: PresetRef | 'default';
 }
 
@@ -66,12 +68,20 @@ export function resolveChain(
   const settings = new Map<string, ResolvedSetting>();
   for (const [key, raw] of defaults) {
     if (!METADATA_KEYS.has(key))
-      settings.set(key, { value: normalizeValue(raw), definedBy: 'default' });
+      settings.set(key, {
+        value: normalizeValue(raw),
+        isVector: Array.isArray(raw),
+        definedBy: 'default',
+      });
   }
   for (const document of [...chain].reverse()) {
     for (const [key, raw] of migrateKeys(document.content, legacyKeys)) {
       if (METADATA_KEYS.has(key)) continue;
-      settings.set(key, { value: normalizeValue(raw), definedBy: document.ref });
+      settings.set(key, {
+        value: normalizeValue(raw),
+        isVector: Array.isArray(raw),
+        definedBy: document.ref,
+      });
     }
   }
 

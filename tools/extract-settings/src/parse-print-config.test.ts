@@ -4,6 +4,7 @@ import {
   parseEnumKeys,
   parsePresetOptionLists,
   parsePrintConfig,
+  parseVariantKeys,
 } from './parse-print-config.ts';
 
 const SOURCE = `
@@ -145,6 +146,27 @@ describe('parsePresetOptionLists', () => {
     expect(lists).toEqual({
       process: ['layer_height', 'wall_loops'],
       filament: ['filament_type', 'nozzle_temperature'],
+    });
+  });
+});
+
+describe('parseVariantKeys', () => {
+  it('reads the per-variant setting sets, ignoring commented-out keys', () => {
+    const keys = parseVariantKeys(`
+      std::set<std::string> print_options_with_variant = {
+          "outer_wall_speed",
+          "print_extruder_variant", //coStrings
+      };
+      std::set<std::string> filament_options_with_variant = {
+          "filament_flow_ratio",
+          //"filament_extruder_id",
+          "filament_extruder_variant",
+      };
+    `);
+
+    expect(keys).toEqual({
+      process: ['outer_wall_speed', 'print_extruder_variant'],
+      filament: ['filament_flow_ratio', 'filament_extruder_variant'],
     });
   });
 });

@@ -27,6 +27,7 @@ const noCatalog = {
   describe: () => undefined,
   defaultsFor: () => new Map(),
   legacyKeys: () => noLegacy,
+  keyRules: () => ({ owned: new Set<string>(), perVariant: new Set<string>() }),
 };
 
 const app = createComparerApp({ repository: createMemoryHost({ documents }), catalog: noCatalog });
@@ -62,13 +63,18 @@ describe('ComparerApp', () => {
             type === 'filament' ? [['filament_density', ['1.24']]] : [['wall_loops', '2']],
           ),
         legacyKeys: () => noLegacy,
+        keyRules: () => ({ owned: new Set<string>(), perVariant: new Set<string>() }),
       },
     });
     const presets = await defaultsApp.listPresets();
     const pla = await defaultsApp.loadResolved(presets.find((preset) => preset.name === 'PLA')!);
     const process = await defaultsApp.loadResolved(presets.find((p) => p.name === '0.20mm')!);
 
-    expect(pla.settings.get('filament_density')).toEqual({ value: ['1.24'], definedBy: 'default' });
+    expect(pla.settings.get('filament_density')).toEqual({
+      value: ['1.24'],
+      isVector: true,
+      definedBy: 'default',
+    });
     expect(pla.settings.has('wall_loops')).toBe(false);
     expect(process.settings.get('wall_loops')?.definedBy).toBe('default');
   });

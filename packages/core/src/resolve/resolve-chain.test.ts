@@ -56,7 +56,7 @@ describe('resolveChain', () => {
       resolveChain(chainFor(documents, 'My ABS'), {
         defaults: new Map([['made_up_key', '7']]),
       }).settings.get('made_up_key'),
-    ).toEqual({ value: ['7'], definedBy: 'default' });
+    ).toEqual({ value: ['7'], isVector: false, definedBy: 'default' });
     expect(resolved.settings.has('name')).toBe(false);
   });
 

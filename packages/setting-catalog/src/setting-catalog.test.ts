@@ -45,6 +45,17 @@ describe('createSettingCatalog', () => {
     expect(renamed.get('enable_wipe_tower')).toBe('enable_prime_tower');
   });
 
+  it('ships the keys each preset type owns and which are stored per variant', () => {
+    const filament = createSettingCatalog().keyRules('filament');
+
+    expect(filament.owned.has('nozzle_temperature')).toBe(true);
+    expect(filament.owned.has('layer_height')).toBe(false);
+    expect(filament.perVariant.has('filament_flow_ratio')).toBe(true);
+    expect(filament.perVariant.has('nozzle_temperature')).toBe(true);
+    expect(filament.perVariant.has('hot_plate_temp')).toBe(false);
+    expect(createSettingCatalog().keyRules('machine').owned.size).toBe(0);
+  });
+
   it('ships defaults for real OrcaSlicer settings', () => {
     const catalog = createSettingCatalog();
 

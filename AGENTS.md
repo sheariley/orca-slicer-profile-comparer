@@ -142,7 +142,7 @@ orca-slicer-profile-comparer/
 │   │   │   ├── normalize/      # string/array normalization, equality
 │   │   │   ├── resolve/        # inheritance chain resolution + where each value came from
 │   │   │   ├── diff/           # resolved profiles → diff rows
-│   │   │   ├── edit/           # (planned) ChangeSet, transfer rules (1..n targets), undo/redo
+│   │   │   ├── edit/           # transfer rules (planTransfer, 1..n targets), edit history, undo/redo
 │   │   │   ├── serialize/      # writes a profile in the format it was read in (OrcaSlicer canonical)
 │   │   │   ├── errors/         # ComparerError with a typed kind (access-denied, not-found, ...)
 │   │   │   ├── ports/          # ProfileRepository, SettingCatalog, SettingsStore, HostCapabilities
@@ -190,7 +190,7 @@ orca-slicer-profile-comparer/
 │   └── playground/             # Vite app in a plain browser: host-memory + core's fixtures
 │
 ├── tools/
-│   ├── extract-settings/       # PrintConfig.cpp + Preset.cpp → labels, defaults, type key lists, legacy keys
+│   ├── extract-settings/       # PrintConfig.cpp + Preset.cpp → labels, defaults, type and per-variant key lists, legacy keys
 │   └── sync-fixtures/          # copies profiles listed in fixtures.json into core's fixtures
 │
 └── docs/
@@ -334,9 +334,16 @@ Paths are relative to the OrcaSlicer repo root.
 
 ## Writing profiles back (transfer and save)
 
-- **Write to the profile's own file, not the resolved view.** Copying a value into a profile that inherits means adding or updating that key as an override in its own JSON. Don't flatten the whole inheritance chain into the file. If the copied value equals what the profile would inherit anyway, consider removing the override instead of keeping a redundant key.
+`core/edit/` implements the transfer rules below (`planTransfer`), and the edit history (batches, undo/redo, and `pendingEdits`, the net edits per target that saving writes through `core/serialize/`). The app layer builds each target's state: its own document, its resolved settings, and what it would inherit without its own overrides (its parent's resolved settings, or the built-in defaults for a root). When planning a new batch on top of pending edits, it must build that state from the edited documents.
+
+- **Write to the profile's own file, not the resolved view.** Copying a value into a profile that inherits means adding or updating that key as an override in its own JSON. Don't flatten the whole inheritance chain into the file. If the copied value equals what the profile would inherit anyway, remove the override instead of writing a redundant key (implemented).
 - **System profiles are effectively read-only.** Files under `resources/profiles/` (and OrcaSlicer's installed or cached copies) get replaced on app updates. Saving should target user presets. If the target is a system preset, offer to save as a new user preset that `inherits` from it.
-- **Keep OrcaSlicer's value format.** Write values back as strings or string arrays exactly as the target expects. Watch array length on per-extruder or per-filament keys: a one-element array copied into a profile expecting a different length needs a deliberate rule. Never write native JSON numbers or booleans.
+- **Keep OrcaSlicer's value format.** Write values back as strings or string arrays, in the shape the target already uses for that key (or the source's, if the target has none). Never write native JSON numbers or booleans.
+- **Fit per-variant settings to the target's variants.** OrcaSlicer stores some settings once per extruder variant (e.g. `nozzle_temperature`, `filament_flow_ratio`, `fan_max_speed`). The catalog's `keyRules(type).perVariant` lists them, from `filament_options_with_variant` / `print_options_with_variant` in `PrintConfig.cpp`. A preset's variants are listed in `filament_extruder_variant` / `print_extruder_variant` (e.g. "Direct Drive Standard", "Direct Drive High Flow"); without that list a preset has one variant. When copying:
+  - If both presets name their variants and the source has every one the target has, match values by name, so a "High Flow" value never lands in a "Standard" slot.
+  - Otherwise resize the way OrcaSlicer does when it loads a preset (`extend_default_config_length` → `ConfigOptionVector::resize`): truncate, or pad by repeating the **first** value. (OrcaSlicer's code comment says "last", but the code uses `front()`.)
+  - Other arrays (G-code lists, `compatible_printers`, ...) are copied as they are.
+  - Never copy the variant list itself; it defines the shape of every per-variant array.
 - **Keep the metadata consistent.** Leave the target's metadata keys (`METADATA_KEYS`) alone. A transfer should never copy them across. For user presets, keep the sibling `.info` file valid. Check how OrcaSlicer writes it, including any update timestamp or sync fields, before touching it.
 - **Avoid spurious diffs.** Save a file in the format it was read in, so it differs only in the keys that changed. `core/serialize/` does this: it detects each file's format and re-serializes in it.
   - **User presets** are written by OrcaSlicer's `ConfigBase::save_to_json` as canonical sorted-key JSON (nlohmann's sorted map), with a final newline and indentation that depends on the OrcaSlicer version that last saved the file.
@@ -350,7 +357,8 @@ Paths are relative to the OrcaSlicer repo root.
   - Desktop: under Tauri's `appDataDir()` (e.g. `backups/<timestamp>/<path relative to the OrcaSlicer data folder>`), so every backup of one save sits together and is easy to restore.
   - The UI should tell users where backups are and offer to open the folder. Decide on pruning old backups when saving is built.
   - Plugin: back up the same way under the plugin's own storage, once plugin saving exists.
-- **Only copy compatible keys.** Filament keys can only go into filament profiles and process keys into process profiles. Which keys belong to which preset type is defined in `Preset.cpp` and `PresetBundle.cpp`.
+- **Only copy compatible keys.** Filament keys can only go into filament profiles and process keys into process profiles. The catalog's `keyRules(type).owned` lists them (from `Preset.cpp`). Keys OrcaSlicer doesn't define at all (Bambu Studio leftovers) are skipped as `not-owned` too.
+- **Explain every skipped key.** `planTransfer` returns a reason for each key it doesn't change: `metadata`, `variant-list`, `not-owned`, `missing-in-source`, or `already-equal`. The UI uses these in previews and results.
 - **Apply every rule per target in a bulk copy.** Each target has its own inheritance chain, so the same copied value can be a new override in one target, redundant in another, and a different array length in a third. Resolve and validate each target on its own. Never assume what's true for one target holds for the rest.
 - **Save bulk changes file by file, not all or nothing.** Each target is written atomically, but a batch can't be atomic across files. Save the targets one by one, collect a result for each, and keep failed targets' edits pending so the user can retry them. When the batch includes system presets, ask once whether to create user presets for them, and show which ones it affects.
 

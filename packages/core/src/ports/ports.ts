@@ -55,6 +55,18 @@ export interface SettingCatalog {
   defaultsFor(type: ProfileType): ReadonlyMap<string, RawValue>;
   /** The obsolete and renamed keys OrcaSlicer migrates when it loads a profile. */
   legacyKeys(): LegacyKeys;
+  /** Which settings a preset of this type owns, and which of those are stored per variant. */
+  keyRules(type: ProfileType): KeyRules;
+}
+
+export interface KeyRules {
+  /** Settings this preset type owns (OrcaSlicer's Preset.cpp option lists). Empty = unknown. */
+  readonly owned: ReadonlySet<string>;
+  /**
+   * Settings stored once per extruder variant, whose arrays OrcaSlicer resizes to the length of
+   * the preset's variant list (`*_options_with_variant` in PrintConfig.cpp).
+   */
+  readonly perVariant: ReadonlySet<string>;
 }
 
 /** Persistent user preferences (default filters, recent comparisons, ...). */
