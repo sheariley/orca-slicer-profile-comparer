@@ -143,12 +143,12 @@ orca-slicer-profile-comparer/
 │   │   │   ├── resolve/        # inheritance chain resolution + where each value came from
 │   │   │   ├── diff/           # resolved profiles → diff rows
 │   │   │   ├── edit/           # (planned) ChangeSet, transfer rules (1..n targets), undo/redo
-│   │   │   ├── serialize/      # (planned) JSON writer that keeps key order, indentation, line endings
+│   │   │   ├── serialize/      # writes a profile in the format it was read in (OrcaSlicer canonical)
 │   │   │   ├── errors/         # ComparerError with a typed kind (access-denied, not-found, ...)
 │   │   │   ├── ports/          # ProfileRepository, SettingCatalog, SettingsStore, HostCapabilities
 │   │   │   └── index.ts        # the package's public API
 │   │   └── test/
-│   │       ├── fixtures/       # real OrcaSlicer profiles (tools/sync-fixtures) + hand-written user presets
+│   │       ├── fixtures/       # real OrcaSlicer profiles (tools/sync-fixtures) + user presets in OrcaSlicer's saved format
 │   │       └── load-fixtures.ts
 │   │
 │   ├── app/                    # use cases, built on core + ports
@@ -286,7 +286,7 @@ Before finishing a change, run `pnpm lint`, `pnpm typecheck`, and `pnpm test`, p
   - A preset can name a parent that no longer exists. That's a real state of user data, so report it as `not-found`; it's not a bug.
   - Every file call goes through the `HostFileSystem` interface, so the contract tests run against an in-memory file system. The production implementation wraps Tauri's fs plugin.
   - File access is limited to `$CONFIG/OrcaSlicer` by `src-tauri/capabilities/default.json`. Widen that scope deliberately, never with a blanket permission.
-  - Saving reports `canSave: false` until `core/serialize/` exists.
+  - Saving reports `canSave: false` until desktop saving lands (slice E4 in `TASKS.md`).
 - **Plugin (`host-orca` + `apps/orca-plugin/python/`):**
   - Preset ids are `"<type>:<name>"`, unique within a preset collection. A system preset's vendor is the folder two levels above its file.
   - The plugin builds to a single `.py` file with a PEP 723 header, the bridge code, and the page inlined.
@@ -338,11 +338,18 @@ Paths are relative to the OrcaSlicer repo root.
 - **System profiles are effectively read-only.** Files under `resources/profiles/` (and OrcaSlicer's installed or cached copies) get replaced on app updates. Saving should target user presets. If the target is a system preset, offer to save as a new user preset that `inherits` from it.
 - **Keep OrcaSlicer's value format.** Write values back as strings or string arrays exactly as the target expects. Watch array length on per-extruder or per-filament keys: a one-element array copied into a profile expecting a different length needs a deliberate rule. Never write native JSON numbers or booleans.
 - **Keep the metadata consistent.** Leave the target's metadata keys (`METADATA_KEYS`) alone. A transfer should never copy them across. For user presets, keep the sibling `.info` file valid. Check how OrcaSlicer writes it, including any update timestamp or sync fields, before touching it.
-- **Avoid spurious diffs.** Keep the original key order, indentation, and line endings, so a saved file differs only in the keys that changed. Formats differ by origin:
-  - Bundled profiles use 4-space indentation.
-  - OrcaSlicer writes user presets with `ConfigBase::save_to_json`: one tab per level (`dump(1, '\t')`) and keys in alphabetical order (nlohmann's ordered map).
-  - Scalar strings such as G-code are written raw (real newlines inside the JSON string). Vector options are arrays of each element's serialized form.
-- **Make saves safe.** Write atomically (temp file, then rename), keep a backup or support undo, and warn that OrcaSlicer may overwrite the file or not pick up the change while it's running. Users should close it, or re-select the preset, before or after saving.
+- **Avoid spurious diffs.** Save a file in the format it was read in, so it differs only in the keys that changed. `core/serialize/` does this: it detects each file's format and re-serializes in it.
+  - **User presets** are written by OrcaSlicer's `ConfigBase::save_to_json` as canonical sorted-key JSON (nlohmann's sorted map), with a final newline and indentation that depends on the OrcaSlicer version that last saved the file.
+  - **Line endings depend on the platform that saved the file:** CRLF on Windows, LF on macOS and Linux. OrcaSlicer only ever writes `\n`, and the file is opened in text mode (`write_whole_file` in `utils.cpp` uses `fopen(path, "w")`; before #15861, `boost::nowide::ofstream` without `std::ios::binary`). The C runtime turns `\n` into `\r\n` in text mode on Windows only. The serializer keeps each file's own line endings, so a file saved on one platform and edited on another stays as it was.
+  - **New files** (nothing to detect from) use `orcaSlicerFormat(newline)`: tab indentation, sorted keys, a final newline, and the line endings of the platform the comparer runs on. `core` is platform-free, so the host supplies the newline. It's a required argument, so it can't be forgotten. Current versions use one tab per level (`dump(1, '\t')`); older ones used 4 spaces. A survey of 197 real user presets saved on Windows (versions 1.7–2.3) found exactly these two styles, all sorted, all CRLF. Built-in `JSON.stringify` with sorted keys reproduced every file byte for byte.
+  - **Bundled profiles** use 4-space indentation and aren't necessarily sorted. The comparer never writes them (see above).
+  - **String values** such as G-code contain real newlines, which JSON writes as `\n` escapes. Non-ASCII text (`℃`) is written as is, not `\u`-escaped. Vector options are arrays of each element's serialized form.
+  - **Files that don't round-trip.** If a file doesn't re-serialize unchanged before any edit (e.g. someone edited it by hand), saving would reformat it. The serializer reports that, and the UI must warn before saving.
+- **Make saves safe.** Write atomically (temp file, then rename), back up the file first (see below), and warn that OrcaSlicer may overwrite the file or not pick up the change while it's running. Users should close it, or re-select the preset, before or after saving.
+- **Back up to a folder the app owns, never next to the original.** OrcaSlicer scans its preset folders, so stray files there (e.g. `My ABS.json.bak`) could show up as presets or confuse it.
+  - Desktop: under Tauri's `appDataDir()` (e.g. `backups/<timestamp>/<path relative to the OrcaSlicer data folder>`), so every backup of one save sits together and is easy to restore.
+  - The UI should tell users where backups are and offer to open the folder. Decide on pruning old backups when saving is built.
+  - Plugin: back up the same way under the plugin's own storage, once plugin saving exists.
 - **Only copy compatible keys.** Filament keys can only go into filament profiles and process keys into process profiles. Which keys belong to which preset type is defined in `Preset.cpp` and `PresetBundle.cpp`.
 - **Apply every rule per target in a bulk copy.** Each target has its own inheritance chain, so the same copied value can be a new override in one target, redundant in another, and a different array length in a third. Resolve and validate each target on its own. Never assume what's true for one target holds for the rest.
 - **Save bulk changes file by file, not all or nothing.** Each target is written atomically, but a batch can't be atomic across files. Save the targets one by one, collect a result for each, and keep failed targets' edits pending so the user can retry them. When the batch includes system presets, ask once whether to create user presets for them, and show which ones it affects.
