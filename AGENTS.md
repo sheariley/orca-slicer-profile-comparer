@@ -2,7 +2,7 @@
 
 OrcaSlicer Profile Comparer: a cross-platform tool for comparing OrcaSlicer **filament** and **process** profiles in a diff-like view of how their settings differ. It's also an editor. From the diff view, users can copy individual setting values from one profile to another, or bulk-copy settings from one profile to many target profiles at once, and save the changed profiles back to disk. It ships first as a Tauri desktop app and later as an OrcaSlicer plugin, running the same UI and core in both.
 
-**Status:** comparing works end to end (read-only) in the playground, desktop, and plugin builds. The desktop app builds and runs on Windows and in WSL, and has been checked against a real OrcaSlicer data folder on Windows. Editing and saving aren't built yet.
+**Status:** comparing works end to end (read-only) in the playground, desktop, and plugin builds. The desktop app builds and runs on Windows and in WSL, and has been checked against a real OrcaSlicer data folder on Windows. Editing works in `core` and `app` (copy, undo/redo, save with a result per target), tested against the memory host; no host can save yet, and the editing UI isn't built.
 
 **Open work is tracked in [TASKS.md](TASKS.md).** Check it before starting, and keep it current: add tasks you discover, and mark the ones you finish `[x]`, in the same change.
 
@@ -57,7 +57,7 @@ These apply to every host (desktop, plugin, playground). When a rule here confli
 
 - **One-click transfer** of a value in either direction.
 - **Always show unsaved changes,** offer undo, and confirm before saving.
-- **Ask about redundant overrides with an "Pin override" checkbox** on each affected setting, in the preview of a copy (see "Writing profiles back"). Its tooltip (an `InfoTip`) explains the trade-off: keeping the override pins the value, so changes to the parent no longer reach it; unchecking re-links it to the parent.
+- **Ask about redundant overrides with a "Pin override" checkbox** on each affected setting, in the preview of a copy (see "Writing profiles back"). Its tooltip (an `InfoTip`) explains the trade-off: keeping the override pins the value, so changes to the parent no longer reach it; unchecking re-links it to the parent.
 - **Bulk copy:** pick one or more settings in a source profile and copy them to many targets of the same type in one action.
   - Choose targets from the preset browser, with multi-select, filters (vendor, printer, user vs. system), and select-all.
   - Before applying, preview each target: the current value, the new value, and which targets already match and will be skipped.
@@ -155,8 +155,9 @@ orca-slicer-profile-comparer/
 │   ├── app/                    # use cases, built on core + ports
 │   │   └── src/
 │   │       ├── comparer-app.ts # createComparerApp: the API the UI calls
-│   │       ├── use-cases/      # loadResolved (more to come: transferValues, saveChanges)
-│   │       └── session/        # (planned) comparison session state (which profiles, pending edits)
+│   │       ├── comparer-app.ts # also the editing use cases: openSession, previewCopy, copy, saveChanges
+│   │       ├── use-cases/      # loadChain, loadResolved
+│   │       └── session/        # EditSession: opened presets, edit history, pending edits, undo/redo
 │   │
 │   ├── ui/                     # React; receives the app layer through a provider
 │   │   ├── vitest.setup.ts     # jest-dom matchers + cleanup for the "dom" test project
@@ -287,8 +288,10 @@ Before finishing a change, run `pnpm lint`, `pnpm typecheck`, and `pnpm test`, p
   - A preset can name a parent that no longer exists. That's a real state of user data, so report it as `not-found`; it's not a bug.
   - Every file call goes through the `HostFileSystem` interface, so the contract tests run against an in-memory file system. The production implementation wraps Tauri's fs plugin.
   - File access is limited to `$CONFIG/OrcaSlicer` by `src-tauri/capabilities/default.json`. Widen that scope deliberately, never with a blanket permission.
+  - Returns each file's exact text, and reports CRLF as the platform newline when the path separator is `\` (Windows), LF otherwise.
   - Saving reports `canSave: false` until desktop saving lands (slice E4 in `TASKS.md`).
 - **Plugin (`host-orca` + `apps/orca-plugin/python/`):**
+  - The Python side reads files with `newline=""`; Python's text mode would turn CRLF into LF and lose the original bytes. It reports `os.name == "nt"` as CRLF for new files.
   - Preset ids are `"<type>:<name>"`, unique within a preset collection. A system preset's vendor is the folder two levels above its file.
   - The plugin builds to a single `.py` file with a PEP 723 header, the bridge code, and the page inlined.
   - `get_icon()` isn't implemented yet. It needs a path to an icon file, which a single-file plugin doesn't ship.
@@ -337,13 +340,24 @@ Paths are relative to the OrcaSlicer repo root.
 
 `core/edit/` implements the transfer rules below (`planTransfer`), and the edit history (batches, undo/redo, and `pendingEdits`, the net edits per target that saving writes through `core/serialize/`). The app layer builds each target's state: its own document, its resolved settings, and what it would inherit without its own overrides (its parent's resolved settings, or the built-in defaults for a root). When planning a new batch on top of pending edits, it must build that state from the edited documents.
 
+**The editing session (`app/session/`).** `ComparerApp.openSession` loads presets for editing, with their parent chains. The session is an immutable value; the app's use cases (`previewCopy`, `copy`, `saveChanges`) and the session functions (`undoSession`, `redoSession`, `pending`, ...) return new ones.
+
+- **Each preset keeps two versions of its file:** as the session opened it (`opened`), and as it is now (`chain[0]`, which changes on save). The history applies to the opened file, which gives the content the user wants. Pending edits are the difference between that and the file as it is now. Saved changes therefore drop out, and undoing a saved change makes reverting it pending, like undo after save in a text editor.
+- **Everything resolves in the edited state.** A preset's chain uses the edited document of every preset open in the session, so a copy into an open parent reaches its open children. Copies are planned against the edited state too, so they build on earlier, unsaved ones.
+- **`saveChanges` goes target by target.** For each preset with pending edits, it applies the edits to the file's original text (`applyEdits`, with the host's `newline` as the fallback for new files), then asks the host to write that text with `previousText`. Results:
+  - `saved`: includes the host's `reloadRequired` and whether the file had to be `reformatted`.
+  - `needs-user-preset`: system presets are never written.
+  - `failed`: carries a typed error, e.g. `conflict` when the file changed since it was read, or `unsupported` on a read-only host. Failed targets keep their pending edits.
+
+**Hosts write text, never content.** `ProfileRepository.readDocument` returns the file's exact text (`ProfileDocument.text`) along with the parsed content. `saveDocument({ ref, text, previousText })` writes the text exactly and refuses with `conflict` if the file no longer holds `previousText`. Hosts also report the platform's `newline`, used only for new files. The shared contract tests check all of this for every host.
+
 - **Write to the profile's own file, not the resolved view.** Copying a value into a profile that inherits means adding or updating that key as an override in its own JSON. Don't flatten the whole inheritance chain into the file.
 - **Let the user decide about redundant overrides ("Pin override").** When the target overrides a setting and the copied value equals what it would inherit, the override is redundant today, but it still pins the value: later changes to the parent won't reach it. Both choices are valid, so the user decides per setting:
   - Keeping the override ("Pin override" checked) writes the value as an override.
   - Dropping it (unchecked) removes the override, re-linking the setting to the parent.
   - The defaults change no more than the copy requires. An override that already holds the value stays (checked), so the file is untouched. One with a different value is dropped (unchecked), since the copy changes that setting anyway.
   - Where the target has no override of its own, there's no choice to make.
-  - `planTransfer` lists these settings in each target plan's `redundantOverrides`, with the current choice. It takes the user's choices through `options.keepOverride`, and the UI re-plans when a checkbox changes.
+  - `planTransfer` lists these settings in each target plan's `redundantOverrides`, with the current choice. It takes the user's choices through `options.pinOverrides`: a map from target preset id to setting key to keep-or-not (`PinOverrides`). Settings without an entry get the default, so the UI only stores what the user changed, and re-plans when a checkbox changes.
 - **System profiles are effectively read-only.** Files under `resources/profiles/` (and OrcaSlicer's installed or cached copies) get replaced on app updates. Saving should target user presets. If the target is a system preset, offer to save as a new user preset that `inherits` from it.
 - **Keep OrcaSlicer's value format.** Write values back as strings or string arrays, in the shape the target already uses for that key (or the source's, if the target has none). A value with several elements is always written as an array, even if the target stored a plain string. Never write native JSON numbers or booleans.
 - **Fit per-variant settings to the target's variants.** OrcaSlicer stores some settings once per extruder variant (e.g. `nozzle_temperature`, `filament_flow_ratio`, `fan_max_speed`). The catalog's `keyRules(type).perVariant` lists them, from `filament_options_with_variant` / `print_options_with_variant` in `PrintConfig.cpp`. A preset's variants are listed in `filament_extruder_variant` / `print_extruder_variant` (e.g. "Direct Drive Standard", "Direct Drive High Flow"); without that list, or with an empty one, a preset has one variant.

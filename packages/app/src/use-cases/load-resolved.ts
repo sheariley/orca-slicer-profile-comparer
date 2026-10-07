@@ -12,15 +12,11 @@ import {
 /** Deeper than any real OrcaSlicer chain; guards against runaway lookups. */
 const MAX_CHAIN_DEPTH = 32;
 
-/**
- * Reads a preset and its ancestors through the repository, then resolves them in core with
- * `options` (built-in defaults and legacy key migration).
- */
-export async function loadResolved(
+/** Reads a preset and its ancestors through the repository: the raw documents, leaf first. */
+export async function loadChain(
   repository: ProfileRepository,
   ref: PresetRef,
-  options: ResolveOptions = {},
-): Promise<ResolvedProfile> {
+): Promise<ProfileDocument[]> {
   const chain: ProfileDocument[] = [];
   const visited = new Set<string>();
   let current: PresetRef | undefined = ref;
@@ -52,6 +48,17 @@ export async function loadResolved(
       );
     }
   }
+  return chain;
+}
 
-  return resolveChain(chain, options);
+/**
+ * Reads a preset and its ancestors through the repository, then resolves them in core with
+ * `options` (built-in defaults and legacy key migration).
+ */
+export async function loadResolved(
+  repository: ProfileRepository,
+  ref: PresetRef,
+  options: ResolveOptions = {},
+): Promise<ResolvedProfile> {
+  return resolveChain(await loadChain(repository, ref), options);
 }

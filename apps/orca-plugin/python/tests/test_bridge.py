@@ -16,18 +16,22 @@ class FakeHost:
 
     def __init__(self, state):
         self._capabilities = state["capabilities"]
+        self._newline = state["newline"]
         self._presets = state["presets"]
 
     def capabilities(self):
         return self._capabilities
 
+    def newline(self):
+        return self._newline
+
     def list_presets(self, type_name):
         return [p["ref"] for p in self._presets if type_name in (None, p["ref"]["type"])]
 
-    def read_content(self, ref):
+    def read_text(self, ref):
         for preset in self._presets:
             if preset["ref"]["id"] == ref["id"]:
-                return preset["content"]
+                return preset["text"]
         raise BridgeError("not-found", f'No preset "{ref["name"]}".', ref["id"])
 
     def resolve_parent(self, child, parent_name):
@@ -37,7 +41,7 @@ class FakeHost:
                 return ref
         return None
 
-    def save_content(self, ref, content):
+    def save_text(self, ref, text, previous_text):
         raise BridgeError("unsupported", "Saving isn't supported in the plugin yet.")
 
 

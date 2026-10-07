@@ -55,7 +55,11 @@ def _error(request_id, kind, message, subject=None):
 
 
 def _hello(host, params):
-    return {"protocolVersion": PROTOCOL_VERSION, "capabilities": host.capabilities()}
+    return {
+        "protocolVersion": PROTOCOL_VERSION,
+        "capabilities": host.capabilities(),
+        "newline": host.newline(),
+    }
 
 
 def _list_presets(host, params):
@@ -63,7 +67,8 @@ def _list_presets(host, params):
 
 
 def _read_document(host, params):
-    return {"content": host.read_content(params["ref"])}
+    text = host.read_text(params["ref"])
+    return {"content": json.loads(text), "text": text}
 
 
 def _resolve_parent(host, params):
@@ -71,7 +76,8 @@ def _resolve_parent(host, params):
 
 
 def _save_document(host, params):
-    return {"reloadRequired": host.save_content(params["ref"], params["content"])}
+    reload_required = host.save_text(params["ref"], params["text"], params.get("previousText"))
+    return {"reloadRequired": reload_required}
 
 
 _HANDLERS = {

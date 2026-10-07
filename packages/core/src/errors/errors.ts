@@ -8,6 +8,8 @@ export type ComparerErrorKind =
   | 'invalid-profile'
   | 'inheritance-cycle'
   | 'unsupported'
+  /** The file changed on disk since it was read (e.g. OrcaSlicer saved it meanwhile). */
+  | 'conflict'
   | 'host-error';
 
 export class ComparerError extends Error {

@@ -25,6 +25,11 @@ export interface ProfileDocument {
   readonly ref: PresetRef;
   /** The parsed JSON object, metadata keys included. */
   readonly content: Readonly<Record<string, unknown>>;
+  /**
+   * The file's text exactly as read. Hosts always set it; saving applies edits to it so the file
+   * keeps its format (see core/serialize). Documents built in memory (tests) may omit it.
+   */
+  readonly text?: string;
 }
 
 /**

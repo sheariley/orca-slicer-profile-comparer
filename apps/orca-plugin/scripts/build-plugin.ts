@@ -18,7 +18,7 @@ function replaceRegion(source: string, name: string, replacement: string): strin
   return source.replace(pattern, () => replacement);
 }
 
-const bridgeBody = bridge.replace(/^"""[\s\S]*?"""\n/, '').replace(/^import json\n/m, '');
+const bridgeBody = bridge.replace(/^"""[\s\S]*?"""\n/, ''); // keeps the bridge's own imports
 let output = replaceRegion(plugin, 'bridge', `# Inlined from comparer_bridge.py\n${bridgeBody}\n`);
 output = replaceRegion(output, 'page', `PAGE_HTML = ${JSON.stringify(page)}\n`);
 

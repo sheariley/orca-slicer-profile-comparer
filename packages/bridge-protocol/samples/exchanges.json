@@ -1,7 +1,11 @@
 {
   "$comment": "Request/response pairs for the plugin bridge. The TypeScript tests validate them against the zod schemas; the Python tests replay each request against a fake host seeded with `host` and expect exactly `response`.",
   "host": {
-    "capabilities": { "canSave": false, "canBrowseFiles": false, "canWatchForChanges": false },
+    "capabilities": {
+      "canSave": false,
+      "canBrowseFiles": false,
+      "canWatchForChanges": false
+    },
     "presets": [
       {
         "ref": {
@@ -15,7 +19,8 @@
           "name": "Bambu PLA Basic @BBL A1",
           "inherits": "Bambu PLA Basic @base",
           "nozzle_temperature": ["220"]
-        }
+        },
+        "text": "{\n\t\"inherits\": \"Bambu PLA Basic @base\",\n\t\"name\": \"Bambu PLA Basic @BBL A1\",\n\t\"nozzle_temperature\": [\n\t\t\"220\"\n\t]\n}\n"
       },
       {
         "ref": {
@@ -25,7 +30,11 @@
           "origin": "system",
           "vendor": "BBL"
         },
-        "content": { "name": "Bambu PLA Basic @base", "nozzle_temperature": ["210"] }
+        "content": {
+          "name": "Bambu PLA Basic @base",
+          "nozzle_temperature": ["210"]
+        },
+        "text": "{\n\t\"name\": \"Bambu PLA Basic @base\",\n\t\"nozzle_temperature\": [\n\t\t\"210\"\n\t]\n}\n"
       },
       {
         "ref": {
@@ -35,9 +44,14 @@
           "origin": "system",
           "vendor": "BBL"
         },
-        "content": { "name": "0.20mm Standard @BBL A1", "layer_height": "0.2" }
+        "content": {
+          "name": "0.20mm Standard @BBL A1",
+          "layer_height": "0.2"
+        },
+        "text": "{\n\t\"layer_height\": \"0.2\",\n\t\"name\": \"0.20mm Standard @BBL A1\"\n}\n"
       }
-    ]
+    ],
+    "newline": "\n"
   },
   "exchanges": [
     {
@@ -46,7 +60,9 @@
         "protocol": 1,
         "id": "1",
         "method": "hello",
-        "params": { "protocolVersion": 1 }
+        "params": {
+          "protocolVersion": 1
+        }
       },
       "response": {
         "protocol": 1,
@@ -54,7 +70,12 @@
         "ok": true,
         "result": {
           "protocolVersion": 1,
-          "capabilities": { "canSave": false, "canBrowseFiles": false, "canWatchForChanges": false }
+          "capabilities": {
+            "canSave": false,
+            "canBrowseFiles": false,
+            "canWatchForChanges": false
+          },
+          "newline": "\n"
         }
       }
     },
@@ -64,7 +85,9 @@
         "protocol": 1,
         "id": "2",
         "method": "listPresets",
-        "params": { "type": "process" }
+        "params": {
+          "type": "process"
+        }
       },
       "response": {
         "protocol": 1,
@@ -104,7 +127,11 @@
         "id": "3",
         "ok": true,
         "result": {
-          "content": { "name": "Bambu PLA Basic @base", "nozzle_temperature": ["210"] }
+          "content": {
+            "name": "Bambu PLA Basic @base",
+            "nozzle_temperature": ["210"]
+          },
+          "text": "{\n\t\"name\": \"Bambu PLA Basic @base\",\n\t\"nozzle_temperature\": [\n\t\t\"210\"\n\t]\n}\n"
         }
       }
     },
@@ -157,7 +184,14 @@
           "parentName": "missing"
         }
       },
-      "response": { "protocol": 1, "id": "5", "ok": true, "result": { "ref": null } }
+      "response": {
+        "protocol": 1,
+        "id": "5",
+        "ok": true,
+        "result": {
+          "ref": null
+        }
+      }
     },
     {
       "name": "readDocument for an unknown preset",
@@ -166,7 +200,12 @@
         "id": "6",
         "method": "readDocument",
         "params": {
-          "ref": { "id": "filament:ghost", "name": "ghost", "type": "filament", "origin": "user" }
+          "ref": {
+            "id": "filament:ghost",
+            "name": "ghost",
+            "type": "filament",
+            "origin": "user"
+          }
         }
       },
       "response": {
@@ -194,14 +233,18 @@
             "origin": "system",
             "vendor": "BBL"
           },
-          "content": { "name": "Bambu PLA Basic @base" }
+          "text": "{\n\t\"name\": \"Bambu PLA Basic @base\"\n}\n",
+          "previousText": "{\n\t\"name\": \"Bambu PLA Basic @base\",\n\t\"nozzle_temperature\": [\n\t\t\"210\"\n\t]\n}\n"
         }
       },
       "response": {
         "protocol": 1,
         "id": "7",
         "ok": false,
-        "error": { "kind": "unsupported", "message": "Saving isn't supported in the plugin yet." }
+        "error": {
+          "kind": "unsupported",
+          "message": "Saving isn't supported in the plugin yet."
+        }
       }
     }
   ]

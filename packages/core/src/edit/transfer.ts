@@ -45,13 +45,16 @@ export interface TransferOptions {
    * removed when the setting is written or its override dropped.
    */
   readonly legacyKeys?: LegacyKeys;
-  /**
-   * The user's "Pin override" choice for a redundant override (see RedundantOverride): true
-   * keeps the setting overridden, false re-links it to the parent. Return undefined (or omit
-   * the option) for the default (see RedundantOverride.keep).
-   */
-  readonly keepOverride?: (target: PresetRef, key: string) => boolean | undefined;
+  /** The user's "Pin override" choices for redundant overrides (see PinOverrides). */
+  readonly pinOverrides?: PinOverrides;
 }
+
+/**
+ * "Pin override" choices, by target preset id, then setting key: true keeps the setting
+ * overridden (pinning the value), false re-links it to the parent. Settings without an entry
+ * get the default (see RedundantOverride.keep), so only what the user changed needs listing.
+ */
+export type PinOverrides = ReadonlyMap<string, ReadonlyMap<string, boolean>>;
 
 /**
  * A setting where the copy would leave the target overriding the very value it inherits. The
@@ -97,7 +100,7 @@ export interface TargetPlan {
   readonly target: PresetRef;
   readonly changes: readonly KeyChange[];
   readonly skipped: readonly KeySkip[];
-  /** Keys that need an "Pin override" choice; each also appears in changes or skipped. */
+  /** Keys that need a "Pin override" choice; each also appears in changes or skipped. */
   readonly redundantOverrides: readonly RedundantOverride[];
 }
 
@@ -113,7 +116,7 @@ export interface TransferPlan {
  * - per-variant settings are fitted to the target's variants (see fitToVariants);
  * - a value the target already has is skipped;
  * - where the target overrides the key and the copied value equals what it would inherit, the
- *   user chooses (options.keepOverride) between keeping the override and re-linking to the
+ *   user chooses (options.pinOverrides) between keeping the override and re-linking to the
  *   parent (see RedundantOverride for the defaults);
  * - otherwise the value is set, in the shape (array or plain string) the target uses. A value
  *   with several elements is always written as an array.
@@ -128,7 +131,7 @@ export function planTransfer(
   const oldNames = oldNamesByKey(options.legacyKeys);
   return {
     targets: targets.map((target) =>
-      planTarget(source, sourceVariants, keys, target, oldNames, options.keepOverride),
+      planTarget(source, sourceVariants, keys, target, oldNames, options.pinOverrides),
     ),
   };
 }
@@ -139,7 +142,7 @@ function planTarget(
   keys: readonly string[],
   target: TransferTarget,
   oldNames: ReadonlyMap<string, readonly string[]>,
-  keepOverride: TransferOptions['keepOverride'],
+  pinOverrides: PinOverrides | undefined,
 ): TargetPlan {
   const changes: KeyChange[] = [];
   const skipped: KeySkip[] = [];
@@ -174,7 +177,7 @@ function planTarget(
     if (ownKeys.length > 0 && inherited && valuesEqual(value, inherited.value)) {
       // Default: change no more than the copy requires. Keep an override that already has this
       // value; drop one that would otherwise be rewritten to the inherited value.
-      const keep = keepOverride?.(ref, key) ?? alreadyThere;
+      const keep = pinOverrides?.get(ref.id)?.get(key) ?? alreadyThere;
       redundantOverrides.push({ key, keep });
       if (!keep) {
         removeOwn();

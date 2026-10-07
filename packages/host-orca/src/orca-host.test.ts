@@ -22,20 +22,25 @@ function fakePluginTransport(backend: ProfileRepository): BridgeTransport {
   const handle = async ({ method, params }: BridgeRequest): Promise<unknown> => {
     switch (method) {
       case 'hello':
-        return { protocolVersion: PROTOCOL_VERSION, capabilities: backend.capabilities };
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          capabilities: backend.capabilities,
+          newline: backend.newline,
+        };
       case 'listPresets':
         return { presets: await backend.listPresets(methods.listPresets.params.parse(params)) };
       case 'readDocument': {
         const { ref } = methods.readDocument.params.parse(params);
-        return { content: (await backend.readDocument(ref)).content };
+        const { content, text } = await backend.readDocument(ref);
+        return { content, text };
       }
       case 'resolveParent': {
         const { child, parentName } = methods.resolveParent.params.parse(params);
         return { ref: (await backend.resolveParent(child, parentName)) ?? null };
       }
       case 'saveDocument': {
-        const { ref, content } = methods.saveDocument.params.parse(params);
-        return await backend.saveDocument({ ref, content });
+        const { ref, text, previousText } = methods.saveDocument.params.parse(params);
+        return await backend.saveDocument({ ref, text, previousText });
       }
     }
   };
@@ -101,6 +106,7 @@ describe('createOrcaHost', () => {
           result: {
             protocolVersion: PROTOCOL_VERSION,
             capabilities: { canSave: false, canBrowseFiles: false, canWatchForChanges: false },
+            newline: '\n',
           },
         });
       },

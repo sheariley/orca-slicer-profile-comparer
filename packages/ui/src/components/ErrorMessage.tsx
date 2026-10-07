@@ -6,6 +6,7 @@ const HINTS: Record<string, string> = {
   'invalid-profile': 'The preset file is damaged or not a profile.',
   'inheritance-cycle': 'The preset inherits from itself through its parents.',
   unsupported: 'This action is not available here yet.',
+  conflict: 'The file changed after it was opened (for example, OrcaSlicer saved it).',
 };
 
 export function ErrorMessage({ error }: { error: unknown }) {

@@ -1,5 +1,6 @@
 import type { PresetRef, ProfileDocument, ProfileType, RawValue } from '../model/profile.ts';
 import type { LegacyKeys } from '../resolve/resolve-chain.ts';
+import type { TextFormat } from '../serialize/serialize-profile.ts';
 
 /**
  * What a host can do. The app and UI adapt to these flags instead of checking which host
@@ -16,6 +17,18 @@ export interface PresetQuery {
 }
 
 /** The result of saving one document. Hosts report what the user must do next. */
+/** A request to write one profile file. */
+export interface SaveRequest {
+  readonly ref: PresetRef;
+  /** The complete new file text. Hosts write it exactly; they never re-serialize. */
+  readonly text: string;
+  /**
+   * What the file held when it was read. If it holds something else now (e.g. OrcaSlicer saved
+   * it meanwhile), the host refuses with a `conflict` error instead of overwriting.
+   */
+  readonly previousText: string | undefined;
+}
+
 export interface SaveResult {
   readonly ref: PresetRef;
   /** What the user must do before OrcaSlicer sees the change. */
@@ -32,7 +45,12 @@ export interface ProfileRepository {
    * (same vendor folder, shared libraries, ...). Resolves to undefined when there's no match.
    */
   resolveParent(child: PresetRef, parentName: string): Promise<PresetRef | undefined>;
-  saveDocument(document: ProfileDocument): Promise<SaveResult>;
+  saveDocument(request: SaveRequest): Promise<SaveResult>;
+  /**
+   * The platform's line endings, for brand-new files only: OrcaSlicer writes "\r\n" on Windows
+   * and "\n" elsewhere. Existing files keep their own (see core/serialize).
+   */
+  readonly newline: TextFormat['newline'];
 }
 
 /** Human-readable metadata for one setting key. */

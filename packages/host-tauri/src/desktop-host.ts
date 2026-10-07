@@ -89,6 +89,8 @@ export function createDesktopHost({ fs, dataDir }: DesktopHostOptions): ProfileR
 
   return {
     capabilities: CAPABILITIES,
+    // OrcaSlicer writes CRLF on Windows (text-mode files), LF elsewhere.
+    newline: fs.separator === '\\' ? '\r\n' : '\n',
 
     async listPresets(query) {
       const refs = await scan();
@@ -103,7 +105,7 @@ export function createDesktopHost({ fs, dataDir }: DesktopHostOptions): ProfileR
         throw toComparerError(error, ref.id);
       }
       try {
-        return { ref, content: JSON.parse(text) as Record<string, unknown> };
+        return { ref, content: JSON.parse(text) as Record<string, unknown>, text };
       } catch {
         throw new ComparerError('invalid-profile', `"${ref.name}" isn't valid JSON.`, ref.id);
       }

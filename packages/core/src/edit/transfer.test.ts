@@ -109,7 +109,7 @@ describe('planTransfer', () => {
     const own = doc('Child', { inherits: 'Parent', nozzle_temperature: ['240'] });
 
     const plan = planTransfer(source, ['nozzle_temperature'], [target(own, parent)], {
-      keepOverride: (ref, key) => ref.name === 'Child' && key === 'nozzle_temperature',
+      pinOverrides: new Map([['Child', new Map([['nozzle_temperature', true]])]]),
     });
 
     expect(plan.targets[0]!.changes).toEqual([
@@ -133,12 +133,37 @@ describe('planTransfer', () => {
     });
 
     const relinked = planTransfer(source, ['nozzle_temperature'], [target(own, parent)], {
-      keepOverride: () => false,
+      pinOverrides: new Map([['Child', new Map([['nozzle_temperature', false]])]]),
     });
     expect(relinked.targets[0]).toMatchObject({
       changes: [{ key: 'nozzle_temperature', change: { kind: 'remove' } }],
       redundantOverrides: [{ key: 'nozzle_temperature', keep: false }],
     });
+  });
+
+  it('applies a choice only to its own target and setting', () => {
+    const parent = doc('Parent', { nozzle_temperature: ['215'], fan_max_speed: ['80'] });
+    const child = doc('Child', {
+      inherits: 'Parent',
+      nozzle_temperature: ['240'],
+      fan_max_speed: ['50'],
+    });
+    const sibling = doc('Sibling', { inherits: 'Parent', nozzle_temperature: ['240'] });
+
+    const plan = planTransfer(
+      source,
+      ['nozzle_temperature', 'fan_max_speed'],
+      [target(child, parent), target(sibling, parent)],
+      { pinOverrides: new Map([['Child', new Map([['fan_max_speed', true]])]]) },
+    );
+
+    expect(plan.targets.map((t) => t.redundantOverrides)).toEqual([
+      [
+        { key: 'nozzle_temperature', keep: false },
+        { key: 'fan_max_speed', keep: true },
+      ],
+      [{ key: 'nozzle_temperature', keep: false }],
+    ]);
   });
 
   it('offers no choice when the target has no override of its own', () => {

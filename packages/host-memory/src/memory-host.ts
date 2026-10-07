@@ -1,21 +1,36 @@
 import {
   ComparerError,
+  orcaSlicerFormat,
+  serializeProfile,
   type HostCapabilities,
   type ProfileDocument,
   type ProfileRepository,
   type SettingsStore,
+  type TextFormat,
 } from '@comparer/core';
 
 export interface MemoryHostOptions {
   readonly documents: readonly ProfileDocument[];
   readonly capabilities?: Partial<HostCapabilities>;
+  /** The "platform" line endings for new files. Defaults to "\n". */
+  readonly newline?: TextFormat['newline'];
 }
 
 export type MemoryHost = ProfileRepository & SettingsStore;
 
 /** An in-memory host for tests, the browser playground, and UI previews. */
-export function createMemoryHost({ documents, capabilities }: MemoryHostOptions): MemoryHost {
-  const byId = new Map(documents.map((document) => [document.ref.id, document]));
+export function createMemoryHost({
+  documents,
+  capabilities,
+  newline = '\n',
+}: MemoryHostOptions): MemoryHost {
+  // Every stored document has text, like a file would: documents built without it get
+  // OrcaSlicer's format.
+  const withText = (document: ProfileDocument): ProfileDocument => ({
+    ...document,
+    text: document.text ?? serializeProfile(document.content, orcaSlicerFormat(newline)),
+  });
+  const byId = new Map(documents.map((document) => [document.ref.id, withText(document)]));
   const resolvedCapabilities: HostCapabilities = {
     canSave: true,
     canBrowseFiles: false,
@@ -26,6 +41,7 @@ export function createMemoryHost({ documents, capabilities }: MemoryHostOptions)
 
   return {
     capabilities: resolvedCapabilities,
+    newline,
 
     async listPresets(query) {
       return [...byId.values()]
@@ -48,15 +64,23 @@ export function createMemoryHost({ documents, capabilities }: MemoryHostOptions)
       return candidates.find((ref) => ref.vendor === child.vendor) ?? candidates[0];
     },
 
-    async saveDocument(document) {
+    async saveDocument({ ref, text, previousText }) {
       if (!resolvedCapabilities.canSave) {
         throw new ComparerError('unsupported', 'This host is read-only.');
       }
-      if (!byId.has(document.ref.id)) {
-        throw new ComparerError('not-found', `No preset "${document.ref.name}".`, document.ref.id);
+      const existing = byId.get(ref.id);
+      if (!existing) throw new ComparerError('not-found', `No preset "${ref.name}".`, ref.id);
+      if (previousText !== undefined && existing.text !== previousText) {
+        throw new ComparerError('conflict', `"${ref.name}" changed since it was read.`, ref.id);
       }
-      byId.set(document.ref.id, document);
-      return { ref: document.ref, reloadRequired: 'none' };
+      let content: Record<string, unknown>;
+      try {
+        content = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        throw new ComparerError('invalid-profile', `Refusing to save invalid JSON.`, ref.id);
+      }
+      byId.set(ref.id, { ref, content, text });
+      return { ref, reloadRequired: 'none' };
     },
 
     async load() {

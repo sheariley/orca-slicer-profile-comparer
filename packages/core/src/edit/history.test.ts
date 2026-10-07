@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { PresetRef, ProfileDocument } from '../model/profile.ts';
 import {
+  applyContentEdits,
   canRedo,
   canUndo,
+  editsBetween,
   emptyHistory,
+  hasEdits,
   pendingEdits,
   record,
   redo,
@@ -123,5 +126,31 @@ describe('pendingEdits', () => {
     const history = undo(record(emptyHistory, batch('a', { PLA: { fan: set(['50']) } })));
 
     expect(pendingEdits(history, originals)).toEqual([]);
+  });
+});
+
+describe('applyContentEdits and editsBetween', () => {
+  const from = { name: 'PLA', a: ['1'], b: '2', gone: ['x'] };
+
+  it('applies sets and removes, replacing values in place', () => {
+    expect(applyContentEdits(from, { set: { a: ['9'], c: '3' }, remove: ['gone'] })).toEqual({
+      name: 'PLA',
+      a: ['9'],
+      b: '2',
+      c: '3',
+    });
+  });
+
+  it('computes the edits between two contents, and they round-trip', () => {
+    const to = { name: 'PLA', a: ['9'], b: '2', c: '3' };
+    const edits = editsBetween(from, to);
+
+    expect(edits).toEqual({ set: { a: ['9'], c: '3' }, remove: ['gone'] });
+    expect(applyContentEdits(from, edits)).toEqual(to);
+    expect(hasEdits(editsBetween(to, to))).toBe(false);
+  });
+
+  it('treats a change of shape as a change', () => {
+    expect(editsBetween({ a: ['1'] }, { a: '1' })).toEqual({ set: { a: '1' } });
   });
 });

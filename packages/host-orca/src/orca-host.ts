@@ -26,24 +26,26 @@ export async function createOrcaHost(
 
   return {
     capabilities: hello.capabilities,
+    newline: hello.newline,
     async listPresets(query) {
       const { presets } = await client.call('listPresets', query?.type ? { type: query.type } : {});
       return presets;
     },
     async readDocument(ref) {
-      const { content } = await client.call('readDocument', { ref });
-      return { ref, content };
+      const { content, text } = await client.call('readDocument', { ref });
+      return { ref, content, text };
     },
     async resolveParent(child, parentName) {
       const { ref } = await client.call('resolveParent', { child, parentName });
       return ref ?? undefined;
     },
-    async saveDocument(document) {
+    async saveDocument({ ref, text, previousText }) {
       const { reloadRequired } = await client.call('saveDocument', {
-        ref: document.ref,
-        content: document.content,
+        ref,
+        text,
+        ...(previousText !== undefined ? { previousText } : {}),
       });
-      return { ref: document.ref, reloadRequired };
+      return { ref, reloadRequired };
     },
   };
 }

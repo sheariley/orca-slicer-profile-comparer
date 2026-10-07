@@ -97,3 +97,33 @@ function sameRaw(value: RawValue, original: unknown): boolean {
     valuesEqual(normalizeValue(value), normalizeValue(original))
   );
 }
+
+/** Applies edits to a profile's own content (keys and values only; formatting is serialize's job). */
+export function applyContentEdits(
+  content: Readonly<Record<string, unknown>>,
+  edits: ProfileEdits,
+): Record<string, unknown> {
+  const removed = new Set(edits.remove ?? []);
+  return Object.fromEntries([
+    ...Object.entries(content).filter(([key]) => !removed.has(key)),
+    ...Object.entries(edits.set ?? {}),
+  ]);
+}
+
+/** The edits that turn content `from` into content `to`. Unchanged keys aren't listed. */
+export function editsBetween(
+  from: Readonly<Record<string, unknown>>,
+  to: Readonly<Record<string, unknown>>,
+): ProfileEdits {
+  const toSet = Object.entries(to).filter(
+    ([key, value]) => !Object.hasOwn(from, key) || !sameRaw(value as RawValue, from[key]),
+  ) as [string, RawValue][];
+  const remove = Object.keys(from).filter((key) => !Object.hasOwn(to, key));
+  return {
+    ...(toSet.length > 0 ? { set: Object.fromEntries(toSet) } : {}),
+    ...(remove.length > 0 ? { remove } : {}),
+  };
+}
+
+export const hasEdits = (edits: ProfileEdits) =>
+  Object.keys(edits.set ?? {}).length > 0 || (edits.remove?.length ?? 0) > 0;

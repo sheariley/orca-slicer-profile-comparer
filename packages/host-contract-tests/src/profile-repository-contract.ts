@@ -49,6 +49,17 @@ export function describeProfileRepositoryContract(name: string, factory: Reposit
       expect(document.content['nozzle_temperature']).toEqual(['210']);
     });
 
+    it("returns the file's text alongside the parsed content", async () => {
+      const document = await repository.readDocument(await find('PLA A'));
+
+      expect(typeof document.text).toBe('string');
+      expect(JSON.parse(document.text!)).toEqual(document.content);
+    });
+
+    it('declares the line endings for new files', () => {
+      expect(['\n', '\r\n']).toContain(repository.newline);
+    });
+
     it("resolves a parent in the child's own vendor first", async () => {
       const parent = await repository.resolveParent(await find('PLA A'), 'common');
 
@@ -79,19 +90,32 @@ export function describeProfileRepositoryContract(name: string, factory: Reposit
       );
     });
 
-    it('saves a document when it can, and refuses with unsupported when it cannot', async () => {
+    it('saves the exact text when it can, and refuses with unsupported when it cannot', async () => {
       const document = await repository.readDocument(await find('My PLA'));
-      const edited = { ...document, content: { ...document.content, nozzle_temperature: ['220'] } };
+      // Unusual but valid formatting: hosts must write the bytes as given, never re-serialize.
+      const text = `{\r\n  "name": "My PLA",\r\n  "inherits": "PLA A",\r\n  "nozzle_temperature": ["220"]\r\n}\r\n`;
+      const request = { ref: document.ref, text, previousText: document.text };
 
       if (repository.capabilities.canSave) {
-        await repository.saveDocument(edited);
+        await repository.saveDocument(request);
         const reread = await repository.readDocument(document.ref);
+        expect(reread.text).toBe(text);
         expect(reread.content['nozzle_temperature']).toEqual(['220']);
       } else {
-        await expect(repository.saveDocument(edited)).rejects.toSatisfy(
+        await expect(repository.saveDocument(request)).rejects.toSatisfy(
           (error) => isComparerError(error) && error.kind === 'unsupported',
         );
       }
+    });
+
+    it('refuses to overwrite a file that changed since it was read', async () => {
+      if (!repository.capabilities.canSave) return;
+      const document = await repository.readDocument(await find('My PLA'));
+
+      await expect(
+        repository.saveDocument({ ref: document.ref, text: '{}\n', previousText: 'stale text' }),
+      ).rejects.toSatisfy((error) => isComparerError(error) && error.kind === 'conflict');
+      expect((await repository.readDocument(document.ref)).text).toBe(document.text);
     });
   });
 }

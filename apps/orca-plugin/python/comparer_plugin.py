@@ -13,7 +13,7 @@ Every `orca.*` reference lives in this file. The protocol handling is in compare
 `pnpm build:plugin` inlines it and the built page into one plugin file.
 """
 
-import json
+import os
 from pathlib import Path
 
 import orca
@@ -39,18 +39,23 @@ class OrcaPresetHost:
         types = [type_name] if type_name else list(_COLLECTIONS)
         return [_ref(preset, t) for t in types for preset in self._presets(t)]
 
-    def read_content(self, ref):
+    def newline(self):
+        # OrcaSlicer writes files in text mode: CRLF on Windows, LF elsewhere.
+        return "\r\n" if os.name == "nt" else "\n"
+
+    def read_text(self, ref):
         preset = self._find(ref["type"], ref["name"])
         if preset is None:
             raise BridgeError("not-found", f'No preset "{ref["name"]}".', ref["id"])
-        with open(preset.file, encoding="utf-8") as file:
-            return json.load(file)
+        # newline="" keeps the file's line endings; text mode would turn CRLF into LF.
+        with open(preset.file, encoding="utf-8", newline="") as file:
+            return file.read()
 
     def resolve_parent(self, child, parent_name):
         preset = self._find(child["type"], parent_name)
         return _ref(preset, child["type"]) if preset is not None else None
 
-    def save_content(self, ref, content):
+    def save_text(self, ref, text, previous_text):
         raise BridgeError("unsupported", "Saving isn't supported in the plugin yet.")
 
     def _collection(self, type_name):

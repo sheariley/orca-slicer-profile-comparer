@@ -29,7 +29,12 @@ const capabilitiesSchema = z.object({
 export const methods = {
   hello: {
     params: z.object({ protocolVersion: z.number().int() }),
-    result: z.object({ protocolVersion: z.number().int(), capabilities: capabilitiesSchema }),
+    result: z.object({
+      protocolVersion: z.number().int(),
+      capabilities: capabilitiesSchema,
+      /** The platform's line endings, for new files ("\r\n" on Windows). */
+      newline: z.enum(['\n', '\r\n']),
+    }),
   },
   listPresets: {
     params: z.object({ type: profileTypeSchema.optional() }),
@@ -37,14 +42,20 @@ export const methods = {
   },
   readDocument: {
     params: z.object({ ref: presetRefSchema }),
-    result: z.object({ content: contentSchema }),
+    /** `text` is the file exactly as read; `content` is it parsed. */
+    result: z.object({ content: contentSchema, text: z.string() }),
   },
   resolveParent: {
     params: z.object({ child: presetRefSchema, parentName: z.string() }),
     result: z.object({ ref: presetRefSchema.nullable() }),
   },
   saveDocument: {
-    params: z.object({ ref: presetRefSchema, content: contentSchema }),
+    /** Writes `text` exactly; refuses with `conflict` if the file no longer holds previousText. */
+    params: z.object({
+      ref: presetRefSchema,
+      text: z.string(),
+      previousText: z.string().optional(),
+    }),
     result: z.object({ reloadRequired: z.enum(['none', 'reselect-preset', 'restart']) }),
   },
 } as const;
@@ -69,6 +80,7 @@ export const errorSchema = z.object({
     'invalid-profile',
     'inheritance-cycle',
     'unsupported',
+    'conflict',
     'host-error',
   ]),
   message: z.string(),
