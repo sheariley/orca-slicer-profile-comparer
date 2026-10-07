@@ -1,26 +1,38 @@
 import {
   ComparerError,
+  isComparerError,
+  markPresetInfoForSync,
   type HostCapabilities,
   type PresetRef,
   type ProfileRepository,
   type ProfileType,
 } from '@comparer/core';
-import type { HostFileSystem } from './file-system.ts';
+import type { HostFileSystem, PresetLock } from './file-system.ts';
 
 export interface DesktopHostOptions {
   readonly fs: HostFileSystem;
   /** OrcaSlicer's data folder (holds system/ and user/). */
   readonly dataDir: string;
+  /** OrcaSlicer's user-preset lock, taken around every save. */
+  readonly lock: PresetLock;
+  /** The app's own folder for backups of the files it saves. Never inside OrcaSlicer's folder. */
+  readonly backupDir: string;
+  /**
+   * How long to wait before each retry when a file can't be replaced (e.g. Windows, while
+   * another program holds it open). Defaults to about 2 s in total.
+   */
+  readonly retryDelaysMs?: readonly number[];
 }
 
 const EDITABLE_TYPES: readonly ProfileType[] = ['filament', 'process'];
 
 const CAPABILITIES: HostCapabilities = {
-  // Saving needs format-preserving serialization in core first.
-  canSave: false,
+  canSave: true,
   canBrowseFiles: false,
   canWatchForChanges: false,
 };
+
+const DEFAULT_RETRY_DELAYS_MS: readonly number[] = [50, 150, 400, 1200];
 
 /**
  * Reads presets from OrcaSlicer's data folder:
@@ -31,8 +43,15 @@ const CAPABILITIES: HostCapabilities = {
  * Preset ids are absolute file paths. Names come from file names, which OrcaSlicer keeps
  * equal to the preset name.
  */
-export function createDesktopHost({ fs, dataDir }: DesktopHostOptions): ProfileRepository {
+export function createDesktopHost({
+  fs,
+  dataDir,
+  lock,
+  backupDir,
+  retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
+}: DesktopHostOptions): ProfileRepository {
   const join = (...parts: string[]) => parts.join(fs.separator);
+  const parentOf = (path: string) => path.slice(0, path.lastIndexOf(fs.separator));
   const userRoot = join(dataDir, 'user');
 
   async function presetsIn(
@@ -124,10 +143,83 @@ export function createDesktopHost({ fs, dataDir }: DesktopHostOptions): ProfileR
       );
     },
 
-    async saveDocument() {
-      throw new ComparerError('unsupported', "Saving isn't supported in the desktop app yet.");
+    /**
+     * Saves one user preset, under OrcaSlicer's lock: re-reads the file and refuses with
+     * `conflict` if it changed, backs up the file and its .info, writes the new text atomically,
+     * and marks the .info so OrcaSlicer uploads the edit to the cloud (see markPresetInfoForSync).
+     */
+    async saveDocument({ ref, text, previousText, batch }) {
+      if (ref.origin !== 'user' || !ref.id.startsWith(userRoot + fs.separator)) {
+        throw new ComparerError('unsupported', 'Only user presets can be saved.', ref.id);
+      }
+      const infoPath = ref.id.replace(/\.json$/i, '.info');
+      return lock.withLock(async () => {
+        try {
+          const current = await fs.readText(ref.id);
+          if (previousText !== undefined && current !== previousText) {
+            throw new ComparerError(
+              'conflict',
+              `"${ref.name}" changed after it was opened.`,
+              ref.id,
+            );
+          }
+          const info = (await fs.exists(infoPath)) ? await fs.readText(infoPath) : undefined;
+
+          const backupFolder = join(backupDir, folderName(batch ?? new Date().toISOString()));
+          await backUp(ref.id, current, backupFolder);
+          if (info !== undefined) await backUp(infoPath, info, backupFolder);
+
+          await writeAtomically(ref.id, text);
+          if (info !== undefined) {
+            const marked = markPresetInfoForSync(info);
+            if (marked !== info) await writeAtomically(infoPath, marked);
+          }
+          // OrcaSlicer keeps presets in memory; it only sees the change after a restart.
+          return { ref, reloadRequired: 'restart' as const };
+        } catch (error) {
+          throw isComparerError(error) ? error : toComparerError(error, ref.id);
+        }
+      });
     },
   };
+
+  /** Copies a file's current text into the backup folder, mirroring its path under dataDir. */
+  async function backUp(path: string, text: string, backupFolder: string): Promise<void> {
+    const relative = path.slice(dataDir.length + fs.separator.length);
+    const target = join(backupFolder, relative);
+    await fs.makeDirectory(parentOf(target));
+    await fs.writeText(target, text);
+  }
+
+  /**
+   * Writes through a temporary file in the same folder, then renames it over the original, so a
+   * reader never sees a half-written file. Windows refuses the rename while another program
+   * holds the file open, so it's retried. If it still fails, the text is written in place, as
+   * OrcaSlicer does in the same situation; the backup was taken first.
+   */
+  async function writeAtomically(path: string, text: string): Promise<void> {
+    const temp = `${path}.${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.tmp`;
+    await fs.writeText(temp, text);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await fs.rename(temp, path);
+        return;
+      } catch {
+        const delay = retryDelaysMs[attempt];
+        if (delay === undefined) {
+          await fs.remove(temp).catch(() => undefined);
+          await fs.writeText(path, text);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+}
+
+/** A batch id (an ISO timestamp) as a folder name that's valid on every OS. */
+function folderName(batch: string): string {
+  return batch.replace(/[^A-Za-z0-9_-]/g, '-');
 }
 
 /** Maps file system failures to typed errors. Tauri reports them as plain strings. */

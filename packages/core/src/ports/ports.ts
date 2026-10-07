@@ -27,6 +27,11 @@ export interface SaveRequest {
    * it meanwhile), the host refuses with a `conflict` error instead of overwriting.
    */
   readonly previousText: string | undefined;
+  /**
+   * Saves that share a batch id belong to one user action. Hosts can use it to group work, e.g.
+   * putting every backup from one save in the same folder.
+   */
+  readonly batch?: string;
 }
 
 export interface SaveResult {

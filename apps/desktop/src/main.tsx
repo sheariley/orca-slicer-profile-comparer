@@ -1,6 +1,12 @@
 // Composition root for the desktop app: the Tauri host reading OrcaSlicer's data folder.
 import { createComparerApp } from '@comparer/app';
-import { createDesktopHost, defaultOrcaDataDir, tauriFileSystem } from '@comparer/host-tauri';
+import {
+  createDesktopHost,
+  defaultBackupDir,
+  defaultOrcaDataDir,
+  tauriFileSystem,
+  tauriPresetLock,
+} from '@comparer/host-tauri';
 import { createSettingCatalog } from '@comparer/setting-catalog';
 import { ComparerRoot } from '@comparer/ui';
 import '@comparer/ui/theme/desktop.css';
@@ -11,7 +17,12 @@ const root = createRoot(document.getElementById('root')!);
 
 try {
   const app = createComparerApp({
-    repository: createDesktopHost({ fs: tauriFileSystem(), dataDir: await defaultOrcaDataDir() }),
+    repository: createDesktopHost({
+      fs: tauriFileSystem(),
+      dataDir: await defaultOrcaDataDir(),
+      lock: tauriPresetLock(),
+      backupDir: await defaultBackupDir(),
+    }),
     catalog: createSettingCatalog(),
   });
   root.render(

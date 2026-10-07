@@ -170,6 +170,8 @@ export function createComparerApp({ repository, catalog }: ComparerDependencies)
     async saveChanges(session) {
       let current = session;
       const results: TargetSaveResult[] = [];
+      // One id for the whole save, e.g. so the host keeps its backups together.
+      const batch = new Date().toISOString();
       for (const { target, edits } of pending(session)) {
         if (target.origin === 'system') {
           results.push({ status: 'needs-user-preset', target });
@@ -185,6 +187,7 @@ export function createComparerApp({ repository, catalog }: ComparerDependencies)
             ref: target,
             text,
             previousText: original.text,
+            batch,
           });
           current = markSaved(current, {
             ref: target,

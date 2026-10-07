@@ -2,7 +2,7 @@
 
 OrcaSlicer Profile Comparer: a cross-platform tool for comparing OrcaSlicer **filament** and **process** profiles in a diff-like view of how their settings differ. It's also an editor. From the diff view, users can copy individual setting values from one profile to another, or bulk-copy settings from one profile to many target profiles at once, and save the changed profiles back to disk. It ships first as a Tauri desktop app and later as an OrcaSlicer plugin, running the same UI and core in both.
 
-**Status:** comparing works end to end (read-only) in the playground, desktop, and plugin builds. The desktop app builds and runs on Windows and in WSL, and has been checked against a real OrcaSlicer data folder on Windows. Editing works in `core` and `app` (copy, undo/redo, save with a result per target), tested against the memory host; no host can save yet, and the editing UI isn't built.
+**Status:** comparing works end to end (read-only) in the playground, desktop, and plugin builds, and the desktop app has been checked against a real OrcaSlicer data folder on Windows. Editing works in `core` and `app` (copy, undo/redo, save with a result per target), and the desktop host can save user presets (checked against a copy of real data). The editing UI isn't built yet, so nothing in the app can save from the screen.
 
 **Open work is tracked in [TASKS.md](TASKS.md).** Check it before starting, and keep it current: add tasks you discover, and mark the ones you finish `[x]`, in the same change.
 
@@ -181,7 +181,7 @@ orca-slicer-profile-comparer/
 │   ├── desktop/                # Tauri app
 │   │   ├── src/main.tsx        # composition root: host-tauri → app → ui
 │   │   ├── icon-source.svg     # source for src-tauri/icons (regenerate with `pnpm tauri icon icon-source.svg`)
-│   │   └── src-tauri/          # tauri.conf.json, capabilities/, Cargo.toml, minimal Rust
+│   │   └── src-tauri/          # tauri.conf.json, capabilities/, Cargo.toml; Rust only for OrcaSlicer's preset lock
 │   ├── orca-plugin/
 │   │   ├── web/                # composition root (host-orca → app → ui), single-file Vite build
 │   │   ├── python/
@@ -289,7 +289,15 @@ Before finishing a change, run `pnpm lint`, `pnpm typecheck`, and `pnpm test`, p
   - Every file call goes through the `HostFileSystem` interface, so the contract tests run against an in-memory file system. The production implementation wraps Tauri's fs plugin.
   - File access is limited to `$CONFIG/OrcaSlicer` by `src-tauri/capabilities/default.json`. Widen that scope deliberately, never with a blanket permission.
   - Returns each file's exact text, and reports CRLF as the platform newline when the path separator is `\` (Windows), LF otherwise.
-  - Saving reports `canSave: false` until desktop saving lands (slice E4 in `TASKS.md`).
+  - **Saving** (`saveDocument`) writes user presets only; system presets are refused. For each file:
+    1. It takes OrcaSlicer's preset lock (see below).
+    2. It re-reads the file and refuses with `conflict` if it no longer holds `previousText`.
+    3. It backs up the `.json` and its `.info` to the app's own folder: `appDataDir()/backups/<batch>/<path relative to the OrcaSlicer data folder>`. One save's files share a folder through `SaveRequest.batch`.
+    4. It writes the new text through a temporary `.tmp` file in the same folder and renames it over the original. Windows refuses the rename while another program holds the file open, so it retries for about 2 s. If the rename still fails, it writes in place, as OrcaSlicer does in that situation; the backup was taken first.
+    5. It marks the `.info` for cloud sync (`markPresetInfoForSync`), and never creates an `.info` that wasn't there.
+    6. It reports `reloadRequired: 'restart'`, because OrcaSlicer keeps presets in memory and doesn't watch the files.
+  - **OrcaSlicer's preset lock:** OrcaSlicer guards every user-preset read and write with an OS file lock on `<data folder>/user.lock` (`InstanceLock`: `LockFileEx` on Windows, `flock` elsewhere), held only for each operation, with a 1 s timeout. The app takes the same lock through two Rust commands in `src-tauri/src/lib.rs` (`lock_user_presets` / `unlock_user_presets`, exposed to TypeScript as `tauriPresetLock()`). They use Rust's standard `File::lock`, which makes the same OS calls, and can lock only that one file. If OrcaSlicer holds the lock for over 2 s, the save fails with a "busy, try again" error instead of proceeding unlocked.
+  - **Write permissions** (`src-tauri/capabilities/default.json`): write and rename only under `$CONFIG/OrcaSlicer/user/**`, remove only `*.tmp` files there, and write/mkdir under `$APPDATA/backups/**`. Never anything under `system/`.
 - **Plugin (`host-orca` + `apps/orca-plugin/python/`):**
   - The Python side reads files with `newline=""`; Python's text mode would turn CRLF into LF and lose the original bytes. It reports `os.name == "nt"` as CRLF for new files.
   - Preset ids are `"<type>:<name>"`, unique within a preset collection. A system preset's vendor is the folder two levels above its file.
@@ -369,7 +377,12 @@ Paths are relative to the OrcaSlicer repo root.
   - Other arrays (G-code lists, `compatible_printers`, ...) are copied as they are.
   - Never copy the settings that define the variants (`VARIANT_KEYS`): the variant names, and for processes the extruder ids. They define the shape of every per-variant array.
 
-- **Keep the metadata consistent.** Leave the target's metadata keys (`METADATA_KEYS`) alone. A transfer should never copy them across. For user presets, keep the sibling `.info` file valid. Check how OrcaSlicer writes it, including any update timestamp or sync fields, before touching it.
+- **Keep the metadata consistent.** Leave the target's metadata keys (`METADATA_KEYS`) alone. A transfer should never copy them across.
+- **Mark saved user presets for cloud sync in their `.info`.** Every user preset has a sibling `.info` (`Preset::save_info`): INI-style `key = value` lines for `sync_info`, `user_id`, `setting_id`, `base_id`, and `updated_time`, written with the platform's line endings.
+  - `sync_info` tells OrcaSlicer's sync service what to do next. OrcaSlicer's editor sets it to `update` after saving an edited preset (`create` for a new one), which queues the change for upload to Orca Cloud.
+  - When pulling, a cloud copy with a newer `updated_time` overwrites the local file. So a `.json` edited without updating its `.info` would never be uploaded, and could later be overwritten by the cloud copy.
+  - `markPresetInfoForSync` (in `core/serialize/`) sets `sync_info = update`, except for `create` (not uploaded yet) and `delete`, and keeps every other byte. Don't touch `updated_time`; the sync service sets it after uploading.
+  - An `.info` without its `.json` reads as a cloud deletion request, so never delete or create `.info` files on their own.
 - **Avoid spurious diffs.** Save a file in the format it was read in, so it differs only in the keys that changed. `core/serialize/` does this: it detects each file's format and re-serializes in it.
   - **User presets** are written by OrcaSlicer's `ConfigBase::save_to_json` as canonical sorted-key JSON (nlohmann's sorted map), with a final newline and indentation that depends on the OrcaSlicer version that last saved the file.
   - **Line endings depend on the platform that saved the file:** CRLF on Windows, LF on macOS and Linux. OrcaSlicer only ever writes `\n`, and the file is opened in text mode (`write_whole_file` in `utils.cpp` uses `fopen(path, "w")`; before #15861, `boost::nowide::ofstream` without `std::ios::binary`). The C runtime turns `\n` into `\r\n` in text mode on Windows only. The serializer keeps each file's own line endings, so a file saved on one platform and edited on another stays as it was.
@@ -377,7 +390,7 @@ Paths are relative to the OrcaSlicer repo root.
   - **Bundled profiles** use 4-space indentation and aren't necessarily sorted. The comparer never writes them (see above).
   - **String values** such as G-code contain real newlines, which JSON writes as `\n` escapes. Non-ASCII text (`℃`) is written as is, not `\u`-escaped. Vector options are arrays of each element's serialized form.
   - **Files that don't round-trip.** If a file doesn't re-serialize unchanged before any edit (e.g. someone edited it by hand), saving would reformat it. The serializer reports that, and the UI must warn before saving.
-- **Make saves safe.** Write atomically (temp file, then rename), back up the file first (see below), and warn that OrcaSlicer may overwrite the file or not pick up the change while it's running. Users should close it, or re-select the preset, before or after saving.
+- **Make saves safe.** Take OrcaSlicer's preset lock, check for a conflict, back up the file first (see below), and write atomically (temp file, then rename). Warn that a running OrcaSlicer won't see the change until it restarts, and may overwrite the file if the user saves the same preset there.
 - **Back up to a folder the app owns, never next to the original.** OrcaSlicer scans its preset folders, so stray files there (e.g. `My ABS.json.bak`) could show up as presets or confuse it.
   - Desktop: under Tauri's `appDataDir()` (e.g. `backups/<timestamp>/<path relative to the OrcaSlicer data folder>`), so every backup of one save sits together and is easy to restore.
   - The UI should tell users where backups are and offer to open the folder. Decide on pruning old backups when saving is built.

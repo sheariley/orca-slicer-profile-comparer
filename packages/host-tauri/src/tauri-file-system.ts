@@ -1,6 +1,16 @@
-import { configDir, join, sep } from '@tauri-apps/api/path';
-import { exists, readDir, readTextFile } from '@tauri-apps/plugin-fs';
-import type { HostFileSystem } from './file-system.ts';
+import { invoke } from '@tauri-apps/api/core';
+import { appDataDir, configDir, join, sep } from '@tauri-apps/api/path';
+import {
+  exists,
+  mkdir,
+  readDir,
+  readTextFile,
+  remove,
+  rename,
+  writeTextFile,
+} from '@tauri-apps/plugin-fs';
+import { ComparerError } from '@comparer/core';
+import type { HostFileSystem, PresetLock } from './file-system.ts';
 
 /** HostFileSystem over Tauri's fs plugin. Paths must be inside the scopes in capabilities/. */
 export function tauriFileSystem(): HostFileSystem {
@@ -11,7 +21,37 @@ export function tauriFileSystem(): HostFileSystem {
       const entries = await readDir(path);
       return entries.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory }));
     },
+    exists: (path) => exists(path),
     readText: (path) => readTextFile(path),
+    writeText: (path, text) => writeTextFile(path, text),
+    rename: (from, to) => rename(from, to),
+    remove: (path) => remove(path),
+    makeDirectory: (path) => mkdir(path, { recursive: true }),
+  };
+}
+
+/**
+ * OrcaSlicer's user-preset lock, taken through the app's two Rust commands
+ * (`lock_user_presets` / `unlock_user_presets` in src-tauri/src/lib.rs).
+ */
+export function tauriPresetLock(): PresetLock {
+  return {
+    async withLock(work) {
+      let token: number;
+      try {
+        token = await invoke<number>('lock_user_presets');
+      } catch (error) {
+        throw new ComparerError(
+          'host-error',
+          `OrcaSlicer is busy with its presets; try again in a moment. (${String(error)})`,
+        );
+      }
+      try {
+        return await work();
+      } finally {
+        await invoke('unlock_user_presets', { token });
+      }
+    },
   };
 }
 
@@ -21,4 +61,9 @@ export function tauriFileSystem(): HostFileSystem {
  */
 export function defaultOrcaDataDir(): Promise<string> {
   return configDir().then((dir) => join(dir, 'OrcaSlicer'));
+}
+
+/** Where the app keeps backups of the files it saves: its own data folder, never OrcaSlicer's. */
+export function defaultBackupDir(): Promise<string> {
+  return appDataDir().then((dir) => join(dir, 'backups'));
 }
