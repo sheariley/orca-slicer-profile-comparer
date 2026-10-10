@@ -9,8 +9,9 @@
   --c-border: #d0d7de;
   --c-accent: #009688;
   --c-accent-fg: #ffffff;
-  --c-changed: #fff8c5;
+  --c-changed: #e0f2f1;
   --c-error: #cf222e;
+  --c-backdrop: rgb(0 0 0 / 35%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,7 +23,8 @@
     --c-border: #3f4247;
     --c-accent: #26a69a;
     --c-accent-fg: #0d1117;
-    --c-changed: #3d3a1f;
+    --c-changed: #133a36;
     --c-error: #ff7b72;
+    --c-backdrop: rgb(0 0 0 / 55%);
   }
 }

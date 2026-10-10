@@ -1,0 +1,311 @@
+import {
+  canRedoSession,
+  canUndoSession,
+  pending,
+  presetIn,
+  redoLabel,
+  redoSession,
+  undoLabel,
+  undoSession,
+  type EditSession,
+  type TargetSaveResult,
+} from '@comparer/app';
+import type { PresetRef } from '@comparer/core';
+import { useEffect, useMemo, useState } from 'react';
+import { ErrorMessage } from '../../components/ErrorMessage.tsx';
+import { InfoTip } from '../../components/InfoTip.tsx';
+import { useComparerApp } from '../../hooks/useComparerApp.ts';
+import { DiffView, type DiffEditing, type Side } from '../diff-view/DiffView.tsx';
+import { settingNames } from '../diff-view/format.ts';
+import { SaveDialog } from '../save-flow/SaveDialog.tsx';
+import { SaveResults } from '../save-flow/SaveResults.tsx';
+import { CopyPreviewDialog, type SingleCopy } from './CopyPreviewDialog.tsx';
+import { skipReasonText } from './skip-reasons.ts';
+
+interface ComparisonEditorProps {
+  /** The session opened for the two presets. The editor owns it from here on. */
+  readonly initial: EditSession;
+  readonly left: PresetRef;
+  readonly right: PresetRef;
+  /** Tells the screen whether there are unsaved changes (so it can confirm before leaving). */
+  readonly onDirtyChange: (dirty: boolean) => void;
+}
+
+type SaveState =
+  | { readonly step: 'idle' }
+  | { readonly step: 'confirm' | 'saving' }
+  | { readonly step: 'done'; readonly results: readonly TargetSaveResult[] }
+  | { readonly step: 'retrying'; readonly results: readonly TargetSaveResult[] }
+  | { readonly step: 'error'; readonly error: unknown };
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
+/**
+ * Compares two presets and edits them: copying values in either direction, undo/redo, and
+ * saving. All edits live in an EditSession until saved.
+ */
+export function ComparisonEditor({ initial, left, right, onDirtyChange }: ComparisonEditorProps) {
+  const app = useComparerApp();
+  const [session, setSession] = useState(initial);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [preview, setPreview] = useState<SingleCopy | null>(null);
+  const [save, setSave] = useState<SaveState>({ step: 'idle' });
+  const [notice, setNotice] = useState('');
+
+  const comparison = useMemo(
+    () => app.compareEdited(session, left.id, right.id),
+    [app, session, left.id, right.id],
+  );
+  const pendingEdits = useMemo(() => pending(session), [session]);
+  const edited = useMemo(() => {
+    const keysOf = (id: string) => {
+      const edits = pendingEdits.find((entry) => entry.target.id === id)?.edits;
+      return new Set([...Object.keys(edits?.set ?? {}), ...(edits?.remove ?? [])]);
+    };
+    return { left: keysOf(left.id), right: keysOf(right.id) };
+  }, [pendingEdits, left.id, right.id]);
+  const dirty = pendingEdits.length > 0;
+
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+
+  const canEdit = app.capabilities.canSave && left.id !== right.id;
+  const canCopyTo: Record<Side, boolean> = {
+    left: canEdit && left.origin === 'user',
+    right: canEdit && right.origin === 'user',
+  };
+  const ids: Record<Side, string> = { left: left.id, right: right.id };
+  const other = (side: Side): Side => (side === 'left' ? 'right' : 'left');
+  const names = useMemo(
+    () =>
+      settingNames(
+        comparison.rows.map((row) => row.key),
+        (key) => app.describeSetting(key)?.label ?? key,
+      ),
+    [app, comparison],
+  );
+  const labelOf = (key: string) => names.get(key) ?? key;
+  const dialogOpen = preview !== null || save.step === 'confirm' || save.step === 'saving';
+
+  const apply = (request: SingleCopy, pins: ReadonlyMap<string, boolean>, label?: string) => {
+    const { session: next } = app.copy(
+      session,
+      {
+        source: request.source,
+        targets: [request.target],
+        keys: request.keys,
+        pinOverrides: new Map([[request.target, pins]]),
+      },
+      label,
+    );
+    setSession(next);
+    setSelected(new Set());
+    setPreview(null);
+    setNotice(`${next.history.done.at(-1)?.label ?? 'Copied'}. Not saved yet.`);
+  };
+
+  /** Names the setting when there's just one (the app's default label counts them). */
+  const copyLabel = ({ target, keys }: SingleCopy) =>
+    keys.length === 1
+      ? `Copy ${labelOf(keys[0]!)} to ${presetIn(session, target).ref.name}`
+      : undefined;
+
+  /** One-click copy of one setting. Asks first only when there's a "Pin override" choice. */
+  const copyOne = (key: string, to: Side) => {
+    const request: SingleCopy = { source: ids[other(to)], target: ids[to], keys: [key] };
+    const targetName = comparison[to].ref.name;
+    const plan = app.previewCopy(session, { ...request, targets: [request.target] }).targets[0]!;
+    if (plan.redundantOverrides.length > 0) {
+      setPreview(request);
+    } else if (plan.changes.length === 0) {
+      const reason = plan.skipped[0]?.reason;
+      setNotice(
+        `Didn't copy ${labelOf(key)}: ${reason ? skipReasonText(reason, targetName) : 'nothing to change.'}`,
+      );
+    } else {
+      apply(request, new Map(), copyLabel(request));
+    }
+  };
+
+  const copySelected = (to: Side) => {
+    // In the table's order, not the order they were ticked.
+    const keys = comparison.rows.map((row) => row.key).filter((key) => selected.has(key));
+    setPreview({ source: ids[other(to)], target: ids[to], keys });
+  };
+
+  const undo = () => {
+    const label = undoLabel(session);
+    if (!label) return;
+    setSession(undoSession(session));
+    setNotice(`Undid: ${label}.`);
+  };
+  const redo = () => {
+    const label = redoLabel(session);
+    if (!label) return;
+    setSession(redoSession(session));
+    setNotice(`Redid: ${label}.`);
+  };
+
+  // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z (⌘ on macOS), except while typing or in a dialog.
+  useEffect(() => {
+    if (!canEdit || dialogOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input:not([type="checkbox"]), textarea, select, [contenteditable]')) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey) undo();
+      else if (key === 'y' || (key === 'z' && event.shiftKey)) redo();
+      else return;
+      event.preventDefault();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  });
+
+  const runSave = async (retry: TargetSaveResult[] | null) => {
+    setSave(retry ? { step: 'retrying', results: retry } : { step: 'saving' });
+    try {
+      const { session: next, results } = await app.saveChanges(session);
+      setSession(next);
+      setSave({ step: 'done', results });
+      setNotice('');
+    } catch (error) {
+      setSave({ step: 'error', error });
+    }
+  };
+
+  const editing: DiffEditing | undefined = canEdit
+    ? {
+        selected,
+        onSelect: (keys, isSelected) => {
+          const next = new Set(selected);
+          for (const key of keys) {
+            if (isSelected) next.add(key);
+            else next.delete(key);
+          }
+          setSelected(next);
+        },
+        edited,
+        canCopyTo,
+        onCopy: copyOne,
+      }
+    : undefined;
+
+  const editedCount = edited.left.size + edited.right.size;
+  const nextUndo = undoLabel(session);
+  const nextRedo = redoLabel(session);
+
+  return (
+    <>
+      {canEdit && (
+        <div className="edit-toolbar" role="group" aria-label="Editing">
+          <span className="unsaved-count">
+            {editedCount > 0 ? plural(editedCount, 'unsaved change') : 'No unsaved changes'}
+          </span>
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndoSession(session)}
+            aria-label={nextUndo ? `Undo: ${nextUndo}` : 'Undo'}
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedoSession(session)}
+            aria-label={nextRedo ? `Redo: ${nextRedo}` : 'Redo'}
+          >
+            Redo
+          </button>
+          <span className="toolbar-separator" />
+          {(['left', 'right'] as const).map((to) => (
+            <CopySelectedButton
+              key={to}
+              to={to}
+              count={selected.size}
+              targetName={comparison[to].ref.name}
+              allowed={canCopyTo[to]}
+              onClick={() => copySelected(to)}
+            />
+          ))}
+          <span className="toolbar-separator" />
+          <button
+            type="button"
+            className="primary"
+            disabled={!dirty}
+            onClick={() => setSave({ step: 'confirm' })}
+          >
+            Save…
+          </button>
+        </div>
+      )}
+      <p role="status" className="notice">
+        {notice}
+      </p>
+
+      {(save.step === 'done' || save.step === 'retrying') && (
+        <SaveResults
+          results={save.results}
+          retrying={save.step === 'retrying'}
+          onRetry={() => void runSave([...save.results])}
+          onDismiss={() => setSave({ step: 'idle' })}
+        />
+      )}
+      {save.step === 'error' && <ErrorMessage error={save.error} />}
+
+      <DiffView comparison={comparison} editing={editing} />
+
+      {preview && (
+        <CopyPreviewDialog
+          session={session}
+          request={preview}
+          onApply={(pins) => apply(preview, pins, copyLabel(preview))}
+          onCancel={() => setPreview(null)}
+        />
+      )}
+      {(save.step === 'confirm' || save.step === 'saving') && (
+        <SaveDialog
+          previews={app.previewSave(session)}
+          saving={save.step === 'saving'}
+          onConfirm={() => void runSave(null)}
+          onCancel={() => setSave({ step: 'idle' })}
+        />
+      )}
+    </>
+  );
+}
+
+function CopySelectedButton({
+  to,
+  count,
+  targetName,
+  allowed,
+  onClick,
+}: {
+  to: Side;
+  count: number;
+  targetName: string;
+  allowed: boolean;
+  onClick: () => void;
+}) {
+  const button = (
+    <button type="button" onClick={onClick} disabled={!allowed || count === 0}>
+      {to === 'left' && <span aria-hidden="true">← </span>}
+      Copy selected to {targetName}
+      {count > 0 && ` (${count})`}
+      {to === 'right' && <span aria-hidden="true"> →</span>}
+    </button>
+  );
+  if (allowed) return button;
+  return (
+    <InfoTip
+      subject={`copying to ${targetName}`}
+      content={`${targetName} is a system preset, which the comparer doesn't change. Saving changes as a new user preset isn't available yet.`}
+    >
+      {button}
+    </InfoTip>
+  );
+}

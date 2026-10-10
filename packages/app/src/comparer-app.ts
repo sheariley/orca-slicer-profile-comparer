@@ -18,6 +18,7 @@ import {
   type SettingCatalog,
   type SettingInfo,
   type PinOverrides,
+  type ProfileEdits,
   type TransferPlan,
 } from '@comparer/core';
 import {
@@ -67,6 +68,17 @@ export type TargetSaveResult =
   /** Nothing was written; the target's edits stay pending so the user can retry. */
   | { readonly status: 'failed'; readonly target: PresetRef; readonly error: ComparerError };
 
+/** What saving would do to one preset with pending edits (for the confirmation before saving). */
+export interface SavePreview {
+  readonly target: PresetRef;
+  /** `ready`: will be written. `needs-user-preset`: a system preset, which is never written. */
+  readonly status: 'ready' | 'needs-user-preset';
+  /** The keys the save sets or removes in the preset's file. */
+  readonly keys: readonly string[];
+  /** The file isn't in canonical form (e.g. edited by hand), so saving will reformat all of it. */
+  readonly reformatted: boolean;
+}
+
 /** The use cases the UI calls. The UI never talks to a host directly. */
 export interface ComparerApp {
   readonly capabilities: HostCapabilities;
@@ -87,6 +99,8 @@ export interface ComparerApp {
     request: CopyRequest,
     label?: string,
   ): { session: EditSession; plan: TransferPlan };
+  /** What `saveChanges` would write, without writing anything. */
+  previewSave(session: EditSession): SavePreview[];
   /**
    * Saves every preset with pending edits, one file at a time. One failure doesn't stop the
    * others; failed targets keep their pending edits.
@@ -123,6 +137,15 @@ export function createComparerApp({ repository, catalog }: ComparerDependencies)
         ...(request.pinOverrides ? { pinOverrides: request.pinOverrides } : {}),
       },
     );
+  };
+
+  /** A preset's file as saving would write it: its current text with `edits` applied. */
+  const prepareSave = (session: EditSession, target: PresetRef, edits: ProfileEdits) => {
+    const original = presetIn(session, target.id).chain[0]!;
+    const fallback = orcaSlicerFormat(repository.newline);
+    // Hosts always provide the text; documents built in memory may not.
+    const originalText = original.text ?? serializeProfile(original.content, fallback);
+    return { previousText: original.text, ...applyEdits(originalText, edits, fallback) };
   };
 
   return {
@@ -167,6 +190,21 @@ export function createComparerApp({ repository, catalog }: ComparerDependencies)
       };
     },
 
+    previewSave(session) {
+      return pending(session).map(({ target, edits }) => {
+        const keys = [...Object.keys(edits.set ?? {}), ...(edits.remove ?? [])];
+        if (target.origin === 'system') {
+          return { target, status: 'needs-user-preset', keys, reformatted: false };
+        }
+        return {
+          target,
+          status: 'ready',
+          keys,
+          reformatted: prepareSave(session, target, edits).reformatted,
+        };
+      });
+    },
+
     async saveChanges(session) {
       let current = session;
       const results: TargetSaveResult[] = [];
@@ -177,18 +215,9 @@ export function createComparerApp({ repository, catalog }: ComparerDependencies)
           results.push({ status: 'needs-user-preset', target });
           continue;
         }
-        const original = presetIn(current, target.id).chain[0]!;
-        const fallback = orcaSlicerFormat(repository.newline);
-        // Hosts always provide the text; documents built in memory may not.
-        const originalText = original.text ?? serializeProfile(original.content, fallback);
         try {
-          const { text, reformatted } = applyEdits(originalText, edits, fallback);
-          const saved = await repository.saveDocument({
-            ref: target,
-            text,
-            previousText: original.text,
-            batch,
-          });
+          const { text, previousText, reformatted } = prepareSave(current, target, edits);
+          const saved = await repository.saveDocument({ ref: target, text, previousText, batch });
           current = markSaved(current, {
             ref: target,
             content: JSON.parse(text) as Record<string, unknown>,

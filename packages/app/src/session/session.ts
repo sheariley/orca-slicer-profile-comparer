@@ -136,6 +136,11 @@ export const redoSession = (session: EditSession): EditSession => ({
 export const canUndoSession = (session: EditSession) => canUndo(session.history);
 export const canRedoSession = (session: EditSession) => canRedo(session.history);
 
+/** The label of the step undo would reverse (e.g. "Copy 2 settings to PETG"), if any. */
+export const undoLabel = (session: EditSession) => session.history.done.at(-1)?.label;
+/** The label of the step redo would reapply, if any. */
+export const redoLabel = (session: EditSession) => session.history.undone[0]?.label;
+
 /**
  * Records that a preset's file now holds `saved`. Pending edits are measured against it, so the
  * saved ones drop out. The history and the opened file are kept, so undo can still reverse a

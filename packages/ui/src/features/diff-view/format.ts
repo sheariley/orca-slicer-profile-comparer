@@ -8,3 +8,29 @@ export function unitFor(value: NormalizedValue, unit: string | undefined): strin
   if (!unit || value.some((item) => item.endsWith('%'))) return undefined;
   return unit.replace(/\s+or\s+%$/, '');
 }
+
+/** A value as text, with its unit: array elements joined with commas. */
+export function formatValue(value: NormalizedValue | undefined, unit: string | undefined): string {
+  if (value === undefined) return '—';
+  const shownUnit = unitFor(value, unit);
+  return shownUnit ? `${value.join(', ')} ${shownUnit}` : value.join(', ');
+}
+
+/**
+ * A name for each setting that tells it apart from the others: its label, plus the key when
+ * another setting shares the label (OrcaSlicer reuses short labels, e.g. three "Fan speed"s).
+ * For accessible names and messages.
+ */
+export function settingNames(
+  keys: readonly string[],
+  labelOf: (key: string) => string,
+): ReadonlyMap<string, string> {
+  const counts = new Map<string, number>();
+  for (const key of keys) counts.set(labelOf(key), (counts.get(labelOf(key)) ?? 0) + 1);
+  return new Map(
+    keys.map((key) => {
+      const label = labelOf(key);
+      return [key, (counts.get(label) ?? 0) > 1 && label !== key ? `${label} (${key})` : label];
+    }),
+  );
+}

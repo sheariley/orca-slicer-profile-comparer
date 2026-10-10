@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { unitFor } from './format.ts';
+import { formatValue, settingNames, unitFor } from './format.ts';
 
 describe('unitFor', () => {
   it('shows the unit after plain numbers', () => {
@@ -17,5 +17,24 @@ describe('unitFor', () => {
 
   it('shows nothing without a unit', () => {
     expect(unitFor(['1'], undefined)).toBeUndefined();
+  });
+});
+
+describe('formatValue', () => {
+  it('joins elements with commas and adds the unit', () => {
+    expect(formatValue(['210', '215'], '℃')).toBe('210, 215 ℃');
+    expect(formatValue(['50%'], 'mm/s² or %')).toBe('50%');
+  });
+
+  it('shows a dash for a missing value', () => {
+    expect(formatValue(undefined, 'mm')).toBe('—');
+  });
+});
+
+describe('settingNames', () => {
+  it('adds the key only to labels that more than one setting shares', () => {
+    const labels: Record<string, string> = { a: 'Fan speed', b: 'Fan speed', c: 'Density' };
+    const names = settingNames(['a', 'b', 'c', 'd'], (key) => labels[key] ?? key);
+    expect([...names.values()]).toEqual(['Fan speed (a)', 'Fan speed (b)', 'Density', 'd']);
   });
 });

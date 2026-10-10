@@ -2,7 +2,7 @@
 
 OrcaSlicer Profile Comparer: a cross-platform tool for comparing OrcaSlicer **filament** and **process** profiles in a diff-like view of how their settings differ. It's also an editor. From the diff view, users can copy individual setting values from one profile to another, or bulk-copy settings from one profile to many target profiles at once, and save the changed profiles back to disk. It ships first as a Tauri desktop app and later as an OrcaSlicer plugin, running the same UI and core in both.
 
-**Status:** comparing works end to end (read-only) in the playground, desktop, and plugin builds, and the desktop app has been checked against a real OrcaSlicer data folder on Windows. Editing works in `core` and `app` (copy, undo/redo, save with a result per target), and the desktop host can save user presets (tested on Windows against a real OrcaSlicer folder, including the conflict check and OrcaSlicer's preset lock). The editing UI isn't built yet, so nothing in the app can save from the screen.
+**Status:** comparing works end to end (read-only) in the playground, desktop, and plugin builds, and the desktop app has been checked against a real OrcaSlicer data folder on Windows. Editing works in `core` and `app` (copy, undo/redo, save with a result per target), and the desktop host can save user presets (tested on Windows against a real OrcaSlicer folder, including the conflict check and OrcaSlicer's preset lock). The editing UI covers the first milestone: copying between the two compared presets (one click per row, or the selected rows through a preview with "Pin override"), undo/redo, and saving with a confirmation and per-preset results. Bulk copy to many targets isn't built yet.
 
 **Open work is tracked in [TASKS.md](TASKS.md).** Check it before starting, and keep it current: add tasks you discover, and mark the ones you finish `[x]`, in the same change.
 
@@ -32,6 +32,8 @@ These apply to every host (desktop, plugin, playground). When a rule here confli
   - Native `title` attributes alone don't satisfy this rule; they're hover-only and unreachable by touch or keyboard.
   - **Use `InfoTip`** (`packages/ui/src/components/InfoTip.tsx`) for every tooltip; it implements all of the above. Don't add `title` attributes.
   - In dense tables, give each row one info tip that covers the whole row (e.g. the setting's description plus where each side's value came from) rather than an icon per cell.
+- **Use `Dialog`** (`packages/ui/src/components/Dialog.tsx`, on Floating UI) for every modal: it traps focus, restores it on close, and closes on Escape or a backdrop click (unless it's mid-task, like saving).
+- **Give every control a unique accessible name.** OrcaSlicer reuses short labels (three settings are called "Fan speed"), so names built from a label add the key when another setting shares it (`settingNames` in `diff-view/format.ts`).
 - **Size touch targets for fingers.** Buttons, checkboxes, info icons, and picker rows need a hit area of at least 32 × 32 CSS px (44 × 44 preferred), even when the visible glyph is smaller.
 - **Label every control.** Use a visible `<label>` or an `aria-label`, and semantic roles (`tablist`/`tab`, `table`, `alert`). Component tests query by role and label (React Testing Library), which keeps this honest.
 - **Support the keyboard.** Every action reachable by mouse or touch must also be reachable by keyboard, with a visible focus indicator.
@@ -57,6 +59,12 @@ These apply to every host (desktop, plugin, playground). When a rule here confli
 
 - **One-click transfer** of a value in either direction.
 - **Always show unsaved changes,** offer undo, and confirm before saving.
+  - Mark each edited value (accent bar, bold, and "(unsaved)" for screen readers), badge the preset's column, and count the changes in the editing toolbar.
+  - Rows with unsaved changes stay visible under "Only differences", even when a copy made both sides equal.
+  - Undo and redo also work from the keyboard (Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z; ⌘ on macOS), except while typing in a field.
+  - Confirm before discarding unsaved changes (choosing other presets or another profile type).
+- **One-click copies ask first only when needed:** when the copy has a "Pin override" choice. A copy that would change nothing says why in the status line (the skip reason) instead of doing nothing silently.
+- **Don't offer what can't be saved.** No copy controls toward a system preset (with an `InfoTip` saying why) or on a read-only host.
 - **Ask about redundant overrides with a "Pin override" checkbox** on each affected setting, in the preview of a copy (see "Writing profiles back"). Its tooltip (an `InfoTip`) explains the trade-off: keeping the override pins the value, so changes to the parent no longer reach it; unchecking re-links it to the parent.
 - **Bulk copy:** pick one or more settings in a source profile and copy them to many targets of the same type in one action.
   - Choose targets from the preset browser, with multi-select, filters (vendor, printer, user vs. system), and select-all.
@@ -164,8 +172,8 @@ orca-slicer-profile-comparer/
 │   │   └── src/
 │   │       ├── ComparerRoot.tsx    # the whole UI; composition roots render this
 │   │       ├── ComparerScreen.tsx
-│   │       ├── features/       # preset-picker/, diff-view/; (planned) bulk-copy/, save-flow/, settings/
-│   │       ├── components/     # shared building blocks
+│   │       ├── features/       # preset-picker/, diff-view/, editing/, save-flow/; (planned) bulk-copy/, settings/
+│   │       ├── components/     # shared building blocks: InfoTip, Dialog, ErrorMessage
 │   │       ├── hooks/          # useComparerApp, useAsync
 │   │       ├── providers/      # AppProvider + its context
 │   │       └── theme/          # base.css (components), desktop.css and orca.css (token values)

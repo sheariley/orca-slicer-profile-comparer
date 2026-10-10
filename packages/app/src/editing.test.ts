@@ -7,7 +7,9 @@ import {
   canUndoSession,
   hasPendingEdits,
   pending,
+  redoLabel,
   redoSession,
+  undoLabel,
   undoSession,
 } from './session/session.ts';
 
@@ -81,10 +83,12 @@ describe('editing session', () => {
       keys: ['nozzle_temperature', 'fan_max_speed'],
     });
     expect(edited.history.done.map((batch) => batch.label)).toEqual(['Copy 2 settings to PETG']);
+    expect(undoLabel(edited)).toBe('Copy 2 settings to PETG');
 
     const undone = undoSession(edited);
     expect(pending(undone)).toEqual([]);
     expect(canRedoSession(undone)).toBe(true);
+    expect([undoLabel(undone), redoLabel(undone)]).toEqual([undefined, 'Copy 2 settings to PETG']);
     expect(pending(redoSession(undone))).toHaveLength(1);
   });
 
@@ -150,6 +154,41 @@ describe('editing session', () => {
         pinOverrides: new Map([['Child', new Map([['fan_max_speed', true]])]]),
       }).targets[0]!.changes,
     ).toEqual([{ key: 'fan_max_speed', change: { kind: 'set', value: ['100'] } }]);
+  });
+
+  it('previews a save without writing: the keys per preset, and which files would be reformatted', async () => {
+    const system: ProfileDocument = {
+      ref: { id: 'Sys', name: 'Sys', type: 'filament', origin: 'system', vendor: 'V' },
+      content: { name: 'Sys', nozzle_temperature: ['200'] },
+    };
+    const { host, app, refs } = setup({ extra: [system] });
+    // PETG edited by hand: compact JSON, not the layout OrcaSlicer writes.
+    const petg = await host.readDocument((await refs('PETG'))[0]!);
+    const compact = JSON.stringify(petg.content);
+    await host.saveDocument({ ref: petg.ref, text: compact, previousText: petg.text });
+    const session = await app.openSession(await refs('PLA', 'PETG', 'Sys'));
+
+    const { session: edited } = app.copy(session, {
+      source: 'PLA',
+      targets: ['PETG', 'Sys'],
+      keys: ['nozzle_temperature', 'fan_max_speed'],
+    });
+
+    expect(app.previewSave(edited)).toEqual([
+      {
+        target: expect.objectContaining({ name: 'PETG' }),
+        status: 'ready',
+        keys: ['nozzle_temperature', 'fan_max_speed'],
+        reformatted: true,
+      },
+      {
+        target: expect.objectContaining({ name: 'Sys' }),
+        status: 'needs-user-preset',
+        keys: ['nozzle_temperature', 'fan_max_speed'],
+        reformatted: false,
+      },
+    ]);
+    expect((await host.readDocument(petg.ref)).text).toBe(compact);
   });
 
   it('never writes system presets, and reports that they need a user preset', async () => {
