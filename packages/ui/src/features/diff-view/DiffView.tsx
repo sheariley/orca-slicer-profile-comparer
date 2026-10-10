@@ -269,7 +269,11 @@ export function DiffView({
               right: editing?.edited.right.has(row.key) ?? false,
             };
             return (
-              <tr key={row.key} data-status={row.status}>
+              <tr
+                key={row.key}
+                data-status={row.status}
+                data-selected={editing?.selected.has(row.key) || undefined}
+              >
                 {editing && (
                   <td className="select-cell">
                     <input

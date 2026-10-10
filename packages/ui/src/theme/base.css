@@ -140,6 +140,11 @@ input[type='search'] {
   background: var(--c-changed);
 }
 
+/* A ticked row, whether or not it differs. */
+.diff tbody tr[data-selected] > * {
+  background: var(--c-selected);
+}
+
 /* A built-in default rather than a value any preset in the chain sets. */
 .diff td.is-default {
   color: var(--c-muted);

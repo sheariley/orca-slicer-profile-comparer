@@ -10,6 +10,7 @@
   --c-accent: #009688;
   --c-accent-fg: #ffffff;
   --c-changed: #e0f2f1;
+  --c-selected: #b2dfdb;
   --c-error: #cf222e;
   --c-backdrop: rgb(0 0 0 / 35%);
 }
@@ -24,6 +25,7 @@
     --c-accent: #26a69a;
     --c-accent-fg: #0d1117;
     --c-changed: #133a36;
+    --c-selected: #1e5650;
     --c-error: #ff7b72;
     --c-backdrop: rgb(0 0 0 / 55%);
   }

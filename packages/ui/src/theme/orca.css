@@ -13,6 +13,7 @@
   --c-accent-fg: var(--orca-accent-fg, #ffffff);
   --c-surface: color-mix(in srgb, var(--c-fg) 5%, var(--c-bg));
   --c-changed: color-mix(in srgb, var(--c-accent) 14%, var(--c-bg));
+  --c-selected: color-mix(in srgb, var(--c-accent) 30%, var(--c-bg));
   --c-error: #e5534b;
   --c-backdrop: color-mix(in srgb, var(--c-fg) 40%, transparent);
 }
