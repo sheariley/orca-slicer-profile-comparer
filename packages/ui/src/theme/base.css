@@ -145,6 +145,16 @@ input[type='search'] {
   background: var(--c-selected);
 }
 
+/*
+ * Muted text lacks contrast on the deeper tint, so it takes the full text color there. (Icons
+ * keep theirs: they need only 3:1, and their hover color.)
+ */
+.diff tbody tr[data-selected] .unit,
+.diff tbody tr[data-selected] .setting-key,
+.diff tbody tr[data-selected] td.is-default {
+  color: var(--c-fg);
+}
+
 /* A built-in default rather than a value any preset in the chain sets. */
 .diff td.is-default {
   color: var(--c-muted);
