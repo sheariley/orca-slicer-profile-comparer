@@ -1,12 +1,13 @@
 import { createComparerApp } from '@comparer/app';
 import {
   ComparerError,
+  type CloseGuard,
   type ProfileDocument,
   type ProfileRepository,
   type SettingCatalog,
 } from '@comparer/core';
 import { createMemoryHost } from '@comparer/host-memory';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { ComparerRoot } from '../../ComparerRoot.tsx';
@@ -58,15 +59,46 @@ const catalog: SettingCatalog = {
   keyRules: () => ({ owned: new Set(Object.keys(LABELS)), perVariant: new Set<string>() }),
 };
 
-function setup(wrap: (host: ProfileRepository) => ProfileRepository = (host) => host) {
+function setup(
+  wrap: (host: ProfileRepository) => ProfileRepository = (host) => host,
+  closeGuard?: CloseGuard,
+) {
   const host = createMemoryHost({ documents });
-  const app = createComparerApp({ repository: wrap(host), catalog });
+  const app = createComparerApp({
+    repository: wrap(host),
+    catalog,
+    ...(closeGuard ? { closeGuard } : {}),
+  });
   render(<ComparerRoot app={app} />);
-  const fileText = async (name: string) => {
-    const ref = (await host.listPresets()).find((preset) => preset.name === name)!;
-    return (await host.readDocument(ref)).text!;
+  const refOf = async (name: string) =>
+    (await host.listPresets()).find((preset) => preset.name === name)!;
+  const fileText = async (name: string) => (await host.readDocument(await refOf(name))).text!;
+  /** Changes a preset's file the way another program (e.g. OrcaSlicer) would. */
+  const editElsewhere = async (name: string, from: string, to: string) => {
+    const text = await fileText(name);
+    await host.saveDocument({
+      ref: await refOf(name),
+      text: text.replace(from, to),
+      previousText: text,
+    });
   };
-  return { user: userEvent.setup(), fileText };
+  return { user: userEvent.setup(), fileText, editElsewhere };
+}
+
+/** A stand-in for the host's window close hook. */
+function fakeCloseGuard() {
+  const guard = {
+    mayClose: (): boolean => true,
+    closed: false,
+    onCloseRequested(mayClose: () => boolean) {
+      guard.mayClose = mayClose;
+      return () => undefined;
+    },
+    close() {
+      guard.closed = true;
+    },
+  };
+  return guard;
 }
 
 async function compare(user: ReturnType<typeof userEvent.setup>, left: string, right: string) {
@@ -248,6 +280,77 @@ describe('editing', () => {
       'Restart OrcaSlicer to see the changes.',
     );
     expect(await fileText('PETG')).toContain('"210"');
+  });
+
+  it('offers to reload a preset that changed on disk, keeping the unsaved changes', async () => {
+    const { user, fileText, editElsewhere } = setup();
+    await compare(user, 'PLA', 'PETG');
+    await user.click(screen.getByRole('button', { name: 'Copy Nozzle temperature to PETG' }));
+    // Meanwhile, OrcaSlicer saves PETG with another change.
+    await editElsewhere('PETG', '"30"', '"35"');
+
+    await user.click(screen.getByRole('button', { name: 'Save…' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    const results = await screen.findByRole('region', { name: 'Save results' });
+    expect(results).toHaveTextContent('The file changed after it was opened');
+    expect(within(results).queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+
+    await user.click(
+      within(results).getByRole('button', { name: 'Reload from disk and keep my changes' }),
+    );
+    expect(await screen.findByText(/Reloaded PETG from disk/)).toBeInTheDocument();
+    expect(screen.getByText('1 unsaved change')).toBeInTheDocument();
+    expect(within(rowOf('fan_min_speed')).getAllByRole('cell').at(-1)).toHaveTextContent('35');
+
+    await user.click(screen.getByRole('button', { name: 'Save…' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(/Saved 1 of 1\./)).toBeInTheDocument();
+    const text = await fileText('PETG');
+    expect(text).toContain('"35"');
+    expect(text).toContain('"210"');
+  });
+
+  it('explains that OrcaSlicer is busy, and offers to try again', async () => {
+    let busy = true;
+    const { user } = setup((host) => ({
+      ...host,
+      async saveDocument(request) {
+        if (busy) throw new ComparerError('busy', 'OrcaSlicer is reading or saving its presets.');
+        return host.saveDocument(request);
+      },
+    }));
+    await compare(user, 'PLA', 'PETG');
+    await user.click(screen.getByRole('button', { name: 'Copy Nozzle temperature to PETG' }));
+    await user.click(screen.getByRole('button', { name: 'Save…' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    const results = await screen.findByRole('region', { name: 'Save results' });
+    expect(results).toHaveTextContent('OrcaSlicer is busy with its presets. Wait a moment');
+    busy = false;
+    await user.click(within(results).getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText(/Saved 1 of 1\./)).toBeInTheDocument();
+  });
+
+  it('asks before the window closes with unsaved changes', async () => {
+    const guard = fakeCloseGuard();
+    const { user } = setup(undefined, guard);
+    await compare(user, 'PLA', 'PETG');
+    expect(guard.mayClose()).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: 'Copy Nozzle temperature to PETG' }));
+    let allowed = true;
+    act(() => {
+      allowed = guard.mayClose();
+    });
+    expect(allowed).toBe(false);
+    const dialog = screen.getByRole('dialog', { name: 'Discard unsaved changes?' });
+    expect(dialog).toHaveTextContent('Closing the window loses the unsaved changes.');
+    await user.click(within(dialog).getByRole('button', { name: 'Keep editing' }));
+    expect(guard.closed).toBe(false);
+
+    act(() => void guard.mayClose());
+    await user.click(screen.getByRole('button', { name: 'Close without saving' }));
+    expect(guard.closed).toBe(true);
   });
 
   it('confirms before discarding unsaved changes', async () => {

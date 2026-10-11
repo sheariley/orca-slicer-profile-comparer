@@ -2,7 +2,7 @@
 
 OrcaSlicer Profile Comparer: a cross-platform tool for comparing OrcaSlicer **filament** and **process** profiles in a diff-like view of how their settings differ. It's also an editor. From the diff view, users can copy individual setting values from one profile to another, or bulk-copy settings from one profile to many target profiles at once, and save the changed profiles back to disk. It ships first as a Tauri desktop app and later as an OrcaSlicer plugin, running the same UI and core in both.
 
-**Status:** comparing works end to end (read-only) in the playground, desktop, and plugin builds, and the desktop app has been checked against a real OrcaSlicer data folder on Windows. Editing works in `core` and `app` (copy, undo/redo, save with a result per target), and the desktop host can save user presets (tested on Windows against a real OrcaSlicer folder, including the conflict check and OrcaSlicer's preset lock). The editing UI covers the first milestone: copying between the two compared presets (one click per row, or the selected rows through a preview with "Pin override"), undo/redo, and saving with a confirmation and per-preset results. Bulk copy to many targets isn't built yet.
+**Status:** comparing works end to end (read-only) in the playground, desktop, and plugin builds, and the desktop app has been checked against a real OrcaSlicer data folder on Windows. Editing works in `core` and `app` (copy, undo/redo, save with a result per target), and the desktop host can save user presets (tested on Windows against a real OrcaSlicer folder, including the conflict check and OrcaSlicer's preset lock). The editing UI covers the first milestone: copying between the two compared presets (one click per row, or the selected rows through a preview with "Pin override"), undo/redo, and saving with a confirmation and per-preset results (with recovery from conflicts and a busy OrcaSlicer), plus a warning before closing with unsaved changes. Bulk copy to many targets isn't built yet.
 
 **Open work is tracked in [TASKS.md](TASKS.md).** Check it before starting, and keep it current: add tasks you discover, and mark the ones you finish `[x]`, in the same change.
 
@@ -62,7 +62,7 @@ These apply to every host (desktop, plugin, playground). When a rule here confli
   - Mark each edited value (accent bar, bold, and "(unsaved)" for screen readers), badge the preset's column, and count the changes in the editing toolbar.
   - Rows with unsaved changes stay visible under "Only differences", even when a copy made both sides equal.
   - Undo and redo also work from the keyboard (Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z; ⌘ on macOS), except while typing in a field.
-  - Confirm before discarding unsaved changes (choosing other presets or another profile type).
+  - Confirm before discarding unsaved changes: choosing other presets or another profile type, or closing the window (through the host's `CloseGuard`, where it has one: the desktop app does).
 - **One-click copies ask first only when needed:** when the copy has a "Pin override" choice. A copy that would change nothing says why in the status line (the skip reason) instead of doing nothing silently.
 - **Don't offer what can't be saved.** No copy controls toward a system preset (with an `InfoTip` saying why) or on a read-only host.
 - **Ask about redundant overrides with a "Pin override" checkbox** on each affected setting, in the preview of a copy (see "Writing profiles back"). Its tooltip (an `InfoTip`) explains the trade-off: keeping the override pins the value, so changes to the parent no longer reach it; unchecking re-links it to the parent.
@@ -75,6 +75,7 @@ These apply to every host (desktop, plugin, playground). When a rule here confli
 ### Saving and feedback
 
 - **Report results per target:** saved, skipped, failed, or needs a new user preset. One failure must not stop the others or hide which ones succeeded, and failed edits stay pending so the user can retry.
+- **Offer the fix that works for each failure.** A `conflict` (the file changed since it was read) can't be fixed by retrying, so offer "Reload from disk and keep my changes" instead (`reloadPresets`). A `busy` OrcaSlicer, or any other failure, gets "Try again".
 - **Tell users what to do next.** If OrcaSlicer must re-select a preset or restart to see a change, the save result says so and the UI tells the user. Never assume the change took effect.
 - **Warn about a running OrcaSlicer,** which may overwrite saved files or not pick up changes.
 
@@ -307,8 +308,9 @@ Before finishing a change, run `pnpm lint`, `pnpm typecheck`, and `pnpm test`, p
     4. It writes the new text through a temporary `.tmp` file in the same folder and renames it over the original. Windows refuses the rename while another program holds the file open, so it retries for about 2 s. If the rename still fails, it writes in place, as OrcaSlicer does in that situation; the backup was taken first.
     5. It marks the `.info` for cloud sync (`markPresetInfoForSync`), and never creates an `.info` that wasn't there.
     6. It reports `reloadRequired: 'restart'`, because OrcaSlicer keeps presets in memory and doesn't watch the files.
-  - **OrcaSlicer's preset lock:** OrcaSlicer guards every user-preset read and write with an OS file lock on `<data folder>/user.lock` (`InstanceLock`: `LockFileEx` on Windows, `flock` elsewhere), held only for each operation, with a 1 s timeout. The app takes the same lock through two Rust commands in `src-tauri/src/lib.rs` (`lock_user_presets` / `unlock_user_presets`, exposed to TypeScript as `tauriPresetLock()`). They use Rust's standard `File::lock`, which makes the same OS calls, and can lock only that one file. If OrcaSlicer holds the lock for over 2 s, the save fails with a "busy, try again" error instead of proceeding unlocked.
+  - **OrcaSlicer's preset lock:** OrcaSlicer guards every user-preset read and write with an OS file lock on `<data folder>/user.lock` (`InstanceLock`: `LockFileEx` on Windows, `flock` elsewhere), held only for each operation, with a 1 s timeout. The app takes the same lock through two Rust commands in `src-tauri/src/lib.rs` (`lock_user_presets` / `unlock_user_presets`, exposed to TypeScript as `tauriPresetLock()`). They use Rust's standard `File::lock`, which makes the same OS calls, and can lock only that one file. If OrcaSlicer holds the lock for over 2 s, the command fails with exactly `"busy"`, which `tauriPresetLock()` turns into a `busy` error, so the save fails (nothing written) instead of proceeding unlocked.
   - **Write permissions** (`src-tauri/capabilities/default.json`): write and rename only under `$CONFIG/OrcaSlicer/user/**`, remove only `*.tmp` files there, and write/mkdir under `$APPDATA/backups/**`. Never anything under `system/`.
+  - **Closing the window:** `tauriCloseGuard()` implements core's `CloseGuard` port over the window's close-requested event, and `core:window:allow-destroy` lets it close after the UI asked about unsaved changes. The app layer passes it to the UI (`ComparerApp.closeGuard`).
 - **Plugin (`host-orca` + `apps/orca-plugin/python/`):**
   - The Python side reads files with `newline=""`; Python's text mode would turn CRLF into LF and lose the original bytes. It reports `os.name == "nt"` as CRLF for new files.
   - Preset ids are `"<type>:<name>"`, unique within a preset collection. A system preset's vendor is the folder two levels above its file.
@@ -366,7 +368,8 @@ Paths are relative to the OrcaSlicer repo root.
 - **`saveChanges` goes target by target.** For each preset with pending edits, it applies the edits to the file's original text (`applyEdits`, with the host's `newline` as the fallback for new files), then asks the host to write that text with `previousText`. Results:
   - `saved`: includes the host's `reloadRequired` and whether the file had to be `reformatted`.
   - `needs-user-preset`: system presets are never written.
-  - `failed`: carries a typed error, e.g. `conflict` when the file changed since it was read, or `unsupported` on a read-only host. Failed targets keep their pending edits.
+  - `failed`: carries a typed error, e.g. `conflict` when the file changed since it was read, `busy` when OrcaSlicer holds its preset lock too long, or `unsupported` on a read-only host. Failed targets keep their pending edits.
+- **`reloadPresets` recovers from a conflict** by re-reading presets and rebasing the session onto them (`reloadPreset`): what changed on disk is folded into the opened file as well, so the history replays on top of the new content. Where both changed a setting, the user's copy wins, and undo still reverses copies saved before the reload.
 
 **Hosts write text, never content.** `ProfileRepository.readDocument` returns the file's exact text (`ProfileDocument.text`) along with the parsed content. `saveDocument({ ref, text, previousText })` writes the text exactly and refuses with `conflict` if the file no longer holds `previousText`. Hosts also report the platform's `newline`, used only for new files. The shared contract tests check all of this for every host.
 

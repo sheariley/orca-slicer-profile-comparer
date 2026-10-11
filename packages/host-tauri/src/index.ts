@@ -6,3 +6,4 @@ export {
   tauriFileSystem,
   tauriPresetLock,
 } from './tauri-file-system.ts';
+export { tauriCloseGuard } from './tauri-close-guard.ts';

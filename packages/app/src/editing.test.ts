@@ -238,6 +238,80 @@ describe('editing session', () => {
     expect(pending(after).map((entry) => entry.target.name)).toEqual(['PETG']);
   });
 
+  describe('reloading after a conflict', () => {
+    /** Someone else (e.g. OrcaSlicer) saves PETG after the session read it. */
+    async function saveElsewhere(host: ReturnType<typeof setup>['host'], from: string, to: string) {
+      const petg = (await host.listPresets()).find((ref) => ref.name === 'PETG')!;
+      const { text } = await host.readDocument(petg);
+      await host.saveDocument({ ref: petg, text: text!.replace(from, to), previousText: text });
+    }
+
+    it('replays pending copies on top of what is on disk now', async () => {
+      const { host, app, refs } = setup();
+      const session = await app.openSession(await refs('PLA', 'PETG'));
+      const { session: edited } = app.copy(session, {
+        source: 'PLA',
+        targets: ['PETG'],
+        keys: ['nozzle_temperature'],
+      });
+      await saveElsewhere(host, '"50"', '"55"');
+      const { session: conflicted, results } = await app.saveChanges(edited);
+      expect(results[0]).toMatchObject({ status: 'failed', error: { kind: 'conflict' } });
+
+      const reloaded = await app.reloadPresets(conflicted, ['PETG']);
+
+      expect(pending(reloaded)).toEqual([
+        {
+          target: expect.objectContaining({ name: 'PETG' }),
+          edits: { set: { nozzle_temperature: ['210'] } },
+        },
+      ]);
+      expect(
+        app.compareEdited(reloaded, 'PLA', 'PETG').right.settings.get('fan_max_speed'),
+      ).toMatchObject({ value: ['55'] });
+      const { results: retried } = await app.saveChanges(reloaded);
+      expect(retried[0]?.status).toBe('saved');
+      const text = (await host.readDocument((await refs('PETG'))[0]!)).text!;
+      expect(text).toContain('"55"');
+      expect(text).toContain('"210"');
+    });
+
+    it("keeps the user's copy where the file changed the same setting", async () => {
+      const { host, app, refs } = setup();
+      const session = await app.openSession(await refs('PLA', 'PETG'));
+      const { session: edited } = app.copy(session, {
+        source: 'PLA',
+        targets: ['PETG'],
+        keys: ['nozzle_temperature'],
+      });
+      await saveElsewhere(host, '"240"', '"245"');
+
+      const reloaded = await app.reloadPresets(edited, ['PETG']);
+
+      expect(pending(reloaded)[0]?.edits).toEqual({ set: { nozzle_temperature: ['210'] } });
+    });
+
+    it('still lets undo reverse a copy saved before the reload', async () => {
+      const { host, app, refs } = setup();
+      const session = await app.openSession(await refs('PLA', 'PETG'));
+      const { session: edited } = app.copy(session, {
+        source: 'PLA',
+        targets: ['PETG'],
+        keys: ['nozzle_temperature'],
+      });
+      const { session: saved } = await app.saveChanges(edited);
+      await saveElsewhere(host, '"50"', '"55"');
+
+      const reloaded = await app.reloadPresets(saved, ['PETG']);
+
+      expect(pending(reloaded)).toEqual([]);
+      // Reverting the copy is pending; the change made elsewhere stays.
+      expect(pending(undoSession(reloaded))[0]?.edits).toEqual({
+        set: { nozzle_temperature: ['240'] },
+      });
+    });
+  });
+
   it('reports a read-only host as failed with unsupported', async () => {
     const { app, refs } = setup({ canSave: false });
     const session = await app.openSession(await refs('PLA', 'PETG'));

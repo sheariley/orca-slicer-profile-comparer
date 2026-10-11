@@ -7,6 +7,7 @@ const HINTS: Record<string, string> = {
   'inheritance-cycle': 'The preset inherits from itself through its parents.',
   unsupported: 'This action is not available here yet.',
   conflict: 'The file changed after it was opened (for example, OrcaSlicer saved it).',
+  busy: 'OrcaSlicer is busy with its presets. Wait a moment, then try again.',
 };
 
 export function ErrorMessage({ error }: { error: unknown }) {

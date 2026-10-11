@@ -142,6 +142,34 @@ export const undoLabel = (session: EditSession) => session.history.done.at(-1)?.
 export const redoLabel = (session: EditSession) => session.history.undone[0]?.label;
 
 /**
+ * Replaces an open preset's files with fresh copies (`chain`, leaf first), keeping the history:
+ * e.g. after a save conflict, when OrcaSlicer changed the file. The changes found on disk are
+ * folded into the opened file too, so the history replays on top of them. Where both changed a
+ * key, the user's copy wins, and undo still reverses copies that were saved before.
+ */
+export function reloadPreset(session: EditSession, chain: readonly ProfileDocument[]): EditSession {
+  const leaf = chain[0]!;
+  const preset = presetIn(session, leaf.ref.id);
+  const external = editsBetween(preset.chain[0]!.content, leaf.content);
+  const opened = { ref: preset.ref, content: applyContentEdits(preset.opened.content, external) };
+  const presets = new Map(
+    [...session.presets].map(([id, other]) => [
+      id,
+      id === leaf.ref.id
+        ? { ...other, opened, chain }
+        : {
+            ...other,
+            // Another open preset may inherit from this one.
+            chain: other.chain.map((document) =>
+              document.ref.id === leaf.ref.id ? leaf : document,
+            ),
+          },
+    ]),
+  );
+  return { ...session, presets };
+}
+
+/**
  * Records that a preset's file now holds `saved`. Pending edits are measured against it, so the
  * saved ones drop out. The history and the opened file are kept, so undo can still reverse a
  * saved change (which makes reverting it pending).

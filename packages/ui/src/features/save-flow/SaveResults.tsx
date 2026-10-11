@@ -3,16 +3,22 @@ import { ErrorMessage } from '../../components/ErrorMessage.tsx';
 
 interface SaveResultsProps {
   readonly results: readonly TargetSaveResult[];
-  readonly retrying: boolean;
+  /** A retry or reload is running. */
+  readonly working: boolean;
   /** Saves the failed presets again (their edits are still pending). */
   readonly onRetry: () => void;
+  /** Re-reads the presets whose files changed meanwhile, replaying the pending edits on top. */
+  readonly onReload: (ids: readonly string[]) => void;
   readonly onDismiss: () => void;
 }
 
 /** The outcome of a save, per preset, and what the user has to do next. */
-export function SaveResults({ results, retrying, onRetry, onDismiss }: SaveResultsProps) {
+export function SaveResults({ results, working, onRetry, onReload, onDismiss }: SaveResultsProps) {
   const saved = results.filter((result) => result.status === 'saved');
   const failed = results.filter((result) => result.status === 'failed');
+  // Retrying can't fix a conflict (the file changed since it was read); reloading can.
+  const conflicts = failed.filter((result) => result.error.kind === 'conflict');
+  const retryable = failed.length > conflicts.length;
   const restart = saved.some((result) => result.reloadRequired === 'restart');
   const reselect = saved.some((result) => result.reloadRequired === 'reselect-preset');
 
@@ -55,9 +61,18 @@ export function SaveResults({ results, retrying, onRetry, onDismiss }: SaveResul
         ))}
       </ul>
       <div className="save-results-actions">
-        {failed.length > 0 && (
-          <button type="button" onClick={onRetry} disabled={retrying}>
-            {retrying ? 'Saving…' : 'Try again'}
+        {conflicts.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onReload(conflicts.map((result) => result.target.id))}
+            disabled={working}
+          >
+            Reload from disk and keep my changes
+          </button>
+        )}
+        {retryable && (
+          <button type="button" onClick={onRetry} disabled={working}>
+            Try again
           </button>
         )}
         <button type="button" onClick={onDismiss}>

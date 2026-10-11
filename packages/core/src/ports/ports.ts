@@ -93,6 +93,20 @@ export interface KeyRules {
 }
 
 /** Persistent user preferences (default filters, recent comparisons, ...). */
+/**
+ * Lets the UI keep the host's window or page from closing, e.g. to ask about unsaved changes
+ * first. Hosts that can't intercept closing don't provide one.
+ */
+export interface CloseGuard {
+  /**
+   * Calls `mayClose` each time the user asks to close. Returning false keeps it open (the UI
+   * then asks, and calls `close` if the user agrees). Returns a function that unsubscribes.
+   */
+  onCloseRequested(mayClose: () => boolean): () => void;
+  /** Closes for real, without asking `mayClose` again. */
+  close(): void;
+}
+
 export interface SettingsStore {
   load(): Promise<Readonly<Record<string, unknown>>>;
   save(settings: Readonly<Record<string, unknown>>): Promise<void>;

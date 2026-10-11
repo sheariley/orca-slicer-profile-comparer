@@ -9,6 +9,10 @@ use tauri::Manager;
 /// How long to wait for OrcaSlicer to release its lock before giving up on a save.
 const LOCK_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// The error `lock_user_presets` returns when the lock stays taken past `LOCK_TIMEOUT`
+/// (tauri-file-system.ts turns it into a `busy` error).
+const LOCK_BUSY: &str = "busy";
+
 /// Locks held for the TypeScript side, by token. Dropping a `File` releases its lock.
 #[derive(Default)]
 struct PresetLocks(Mutex<(u32, HashMap<u32, File>)>);
@@ -17,7 +21,7 @@ struct PresetLocks(Mutex<(u32, HashMap<u32, File>)>);
 /// OrcaSlicer's `InstanceLock` locks around every user-preset read and write. `File::lock`
 /// uses the same calls OrcaSlicer does (LockFileEx on Windows, flock elsewhere), so the two
 /// programs exclude each other. Only this one file can be locked. Returns a token for
-/// `unlock_user_presets`.
+/// `unlock_user_presets`. Fails with exactly `LOCK_BUSY` when the lock stays taken.
 #[tauri::command]
 async fn lock_user_presets(app: tauri::AppHandle) -> Result<u32, String> {
     let path = app
@@ -42,7 +46,7 @@ async fn lock_user_presets(app: tauri::AppHandle) -> Result<u32, String> {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(TryLockError::WouldBlock) => {
-                    return Err("another program has held the lock for too long".into());
+                    return Err(LOCK_BUSY.into());
                 }
                 Err(TryLockError::Error(error)) => return Err(error.to_string()),
             }

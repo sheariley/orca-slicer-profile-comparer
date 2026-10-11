@@ -1,5 +1,5 @@
 import type { PresetRef, ProfileType } from '@comparer/core';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dialog } from './components/Dialog.tsx';
 import { ErrorMessage } from './components/ErrorMessage.tsx';
 import { InfoTip } from './components/InfoTip.tsx';
@@ -21,7 +21,10 @@ export function ComparerScreen() {
 
   const [dirty, setDirty] = useState(false);
   // A change of presets waiting for the user to confirm discarding unsaved changes.
-  const [pendingChange, setPendingChange] = useState<(() => void) | null>(null);
+  const [pendingChange, setPendingChange] = useState<{
+    readonly run: () => void;
+    readonly reason: 'presets' | 'close';
+  } | null>(null);
 
   const presets = useAsync(type, () => app.listPresets({ type }));
   const comparisonKey = left && right ? `${left.id}\u0000${right.id}` : null;
@@ -30,9 +33,24 @@ export function ComparerScreen() {
 
   /** Runs a change that would close the current comparison, confirming first if it has edits. */
   const leaveComparison = (change: () => void) => {
-    if (dirty) setPendingChange(() => change);
+    if (dirty) setPendingChange({ run: change, reason: 'presets' });
     else change();
   };
+  // Closing the window (where the host can intercept it) asks first too.
+  const dirtyRef = useRef(dirty);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+  useEffect(() => {
+    const guard = app.closeGuard;
+    if (!guard) return;
+    return guard.onCloseRequested(() => {
+      if (!dirtyRef.current) return true;
+      setPendingChange({ run: () => guard.close(), reason: 'close' });
+      return false;
+    });
+  }, [app]);
+
   const chooseType = (next: ProfileType) =>
     leaveComparison(() => {
       setType(next);
@@ -115,17 +133,21 @@ export function ComparerScreen() {
                 type="button"
                 className="danger"
                 onClick={() => {
-                  pendingChange();
+                  pendingChange.run();
                   setDirty(false);
                   setPendingChange(null);
                 }}
               >
-                Discard changes
+                {pendingChange.reason === 'close' ? 'Close without saving' : 'Discard changes'}
               </button>
             </>
           }
         >
-          <p>Choosing other presets closes this comparison, and its unsaved changes are lost.</p>
+          <p>
+            {pendingChange.reason === 'close'
+              ? 'Closing the window loses the unsaved changes.'
+              : 'Choosing other presets closes this comparison, and its unsaved changes are lost.'}
+          </p>
         </Dialog>
       )}
     </div>

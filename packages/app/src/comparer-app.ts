@@ -19,6 +19,7 @@ import {
   type SettingInfo,
   type PinOverrides,
   type ProfileEdits,
+  type CloseGuard,
   type TransferPlan,
 } from '@comparer/core';
 import {
@@ -29,6 +30,7 @@ import {
   pending,
   presetIn,
   recordBatch,
+  reloadPreset,
   resolveEdited,
   type EditSession,
 } from './session/session.ts';
@@ -37,6 +39,8 @@ import { loadChain, loadResolved } from './use-cases/load-resolved.ts';
 export interface ComparerDependencies {
   readonly repository: ProfileRepository;
   readonly catalog: SettingCatalog;
+  /** The host's window close hook, where it has one. */
+  readonly closeGuard?: CloseGuard;
 }
 
 export interface Comparison {
@@ -82,6 +86,8 @@ export interface SavePreview {
 /** The use cases the UI calls. The UI never talks to a host directly. */
 export interface ComparerApp {
   readonly capabilities: HostCapabilities;
+  /** Set when the host can keep its window from closing (to ask about unsaved changes). */
+  readonly closeGuard: CloseGuard | undefined;
   listPresets(query?: PresetQuery): Promise<readonly PresetRef[]>;
   loadResolved(ref: PresetRef): Promise<ResolvedProfile>;
   compare(left: PresetRef, right: PresetRef): Promise<Comparison>;
@@ -99,6 +105,11 @@ export interface ComparerApp {
     request: CopyRequest,
     label?: string,
   ): { session: EditSession; plan: TransferPlan };
+  /**
+   * Re-reads presets from the host (e.g. after a `conflict`), keeping the edit history: pending
+   * copies are replayed on top of what's on disk now (see reloadPreset).
+   */
+  reloadPresets(session: EditSession, ids: readonly string[]): Promise<EditSession>;
   /** What `saveChanges` would write, without writing anything. */
   previewSave(session: EditSession): SavePreview[];
   /**
@@ -108,7 +119,11 @@ export interface ComparerApp {
   saveChanges(session: EditSession): Promise<{ session: EditSession; results: TargetSaveResult[] }>;
 }
 
-export function createComparerApp({ repository, catalog }: ComparerDependencies): ComparerApp {
+export function createComparerApp({
+  repository,
+  catalog,
+  closeGuard,
+}: ComparerDependencies): ComparerApp {
   const resolveOptions = (type: ProfileType): ResolveOptions => ({
     defaults: catalog.defaultsFor(type),
     legacyKeys: catalog.legacyKeys(),
@@ -150,6 +165,7 @@ export function createComparerApp({ repository, catalog }: ComparerDependencies)
 
   return {
     capabilities: repository.capabilities,
+    closeGuard,
     listPresets: (query) => repository.listPresets(query),
     loadResolved: resolve,
     async compare(leftRef, rightRef) {
@@ -188,6 +204,13 @@ export function createComparerApp({ repository, catalog }: ComparerDependencies)
         session: recordBatch(session, { label: batchLabel, plan: transfer }),
         plan: transfer,
       };
+    },
+
+    async reloadPresets(session, ids) {
+      const chains = await Promise.all(
+        ids.map((id) => loadChain(repository, presetIn(session, id).ref)),
+      );
+      return chains.reduce(reloadPreset, session);
     },
 
     previewSave(session) {

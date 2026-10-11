@@ -35,7 +35,8 @@ type SaveState =
   | { readonly step: 'idle' }
   | { readonly step: 'confirm' | 'saving' }
   | { readonly step: 'done'; readonly results: readonly TargetSaveResult[] }
-  | { readonly step: 'retrying'; readonly results: readonly TargetSaveResult[] }
+  /** Retrying failed saves, or reloading presets that changed on disk. */
+  | { readonly step: 'working'; readonly results: readonly TargetSaveResult[] }
   | { readonly step: 'error'; readonly error: unknown };
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
@@ -165,12 +166,26 @@ export function ComparisonEditor({ initial, left, right, onDirtyChange }: Compar
   });
 
   const runSave = async (retry: TargetSaveResult[] | null) => {
-    setSave(retry ? { step: 'retrying', results: retry } : { step: 'saving' });
+    setSave(retry ? { step: 'working', results: retry } : { step: 'saving' });
     try {
       const { session: next, results } = await app.saveChanges(session);
       setSession(next);
       setSave({ step: 'done', results });
       setNotice('');
+    } catch (error) {
+      setSave({ step: 'error', error });
+    }
+  };
+
+  const reload = async (ids: readonly string[], results: TargetSaveResult[]) => {
+    setSave({ step: 'working', results });
+    try {
+      setSession(await app.reloadPresets(session, ids));
+      setSave({ step: 'idle' });
+      const names = ids.map((id) => presetIn(session, id).ref.name).join(', ');
+      setNotice(
+        `Reloaded ${names} from disk and reapplied your unsaved changes. Check them, then save again.`,
+      );
     } catch (error) {
       setSave({ step: 'error', error });
     }
@@ -246,11 +261,12 @@ export function ComparisonEditor({ initial, left, right, onDirtyChange }: Compar
         {notice}
       </p>
 
-      {(save.step === 'done' || save.step === 'retrying') && (
+      {(save.step === 'done' || save.step === 'working') && (
         <SaveResults
           results={save.results}
-          retrying={save.step === 'retrying'}
+          working={save.step === 'working'}
           onRetry={() => void runSave([...save.results])}
+          onReload={(ids) => void reload(ids, [...save.results])}
           onDismiss={() => setSave({ step: 'idle' })}
         />
       )}

@@ -10,6 +10,8 @@ export type ComparerErrorKind =
   | 'unsupported'
   /** The file changed on disk since it was read (e.g. OrcaSlicer saved it meanwhile). */
   | 'conflict'
+  /** Another program (OrcaSlicer) holds the lock on the files for too long; worth retrying. */
+  | 'busy'
   | 'host-error';
 
 export class ComparerError extends Error {

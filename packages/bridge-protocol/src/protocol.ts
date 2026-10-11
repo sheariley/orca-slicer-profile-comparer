@@ -81,6 +81,7 @@ export const errorSchema = z.object({
     'inheritance-cycle',
     'unsupported',
     'conflict',
+    'busy',
     'host-error',
   ]),
   message: z.string(),

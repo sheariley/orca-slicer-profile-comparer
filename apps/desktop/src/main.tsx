@@ -4,6 +4,7 @@ import {
   createDesktopHost,
   defaultBackupDir,
   defaultOrcaDataDir,
+  tauriCloseGuard,
   tauriFileSystem,
   tauriPresetLock,
 } from '@comparer/host-tauri';
@@ -24,6 +25,7 @@ try {
       backupDir: await defaultBackupDir(),
     }),
     catalog: createSettingCatalog(),
+    closeGuard: tauriCloseGuard(),
   });
   root.render(
     <StrictMode>

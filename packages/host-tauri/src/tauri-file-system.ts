@@ -41,10 +41,13 @@ export function tauriPresetLock(): PresetLock {
       try {
         token = await invoke<number>('lock_user_presets');
       } catch (error) {
-        throw new ComparerError(
-          'host-error',
-          `OrcaSlicer is busy with its presets; try again in a moment. (${String(error)})`,
-        );
+        // "busy" (LOCK_BUSY in lib.rs): OrcaSlicer kept the lock past the timeout.
+        throw error === 'busy'
+          ? new ComparerError('busy', 'OrcaSlicer is reading or saving its presets right now.')
+          : new ComparerError(
+              'host-error',
+              `Couldn't take OrcaSlicer's preset lock: ${String(error)}`,
+            );
       }
       try {
         return await work();
