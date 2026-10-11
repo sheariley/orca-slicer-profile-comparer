@@ -45,8 +45,9 @@ const documents = [
 
 const LABELS: Record<string, string> = {
   nozzle_temperature: 'Nozzle temperature',
-  fan_max_speed: 'Maximum fan speed',
-  fan_min_speed: 'Minimum fan speed',
+  // OrcaSlicer reuses short labels like this one.
+  fan_max_speed: 'Fan speed',
+  fan_min_speed: 'Fan speed',
 };
 
 const catalog: SettingCatalog = {
@@ -197,6 +198,7 @@ describe('editing', () => {
     await user.click(screen.getByRole('button', { name: 'Save…' }));
     const dialog = screen.getByRole('dialog', { name: 'Save changes' });
     expect(dialog).toHaveTextContent('PETG: Nozzle temperature');
+    expect(dialog).not.toHaveTextContent('(nozzle_temperature)');
     expect(dialog).toHaveTextContent("A running OrcaSlicer won't see these changes");
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
 
@@ -205,6 +207,20 @@ describe('editing', () => {
     expect(await fileText('PETG')).toContain('"210"');
     expect(screen.getByText('No unsaved changes')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save…' })).toBeDisabled();
+  });
+
+  it('tells apart settings that share a label, in the controls and the save confirmation', async () => {
+    const { user } = setup();
+    await compare(user, 'PLA', 'PETG');
+
+    await user.click(
+      screen.getByRole('button', { name: 'Copy Fan speed (fan_min_speed) to PETG' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Save…' }));
+
+    expect(screen.getByRole('dialog', { name: 'Save changes' })).toHaveTextContent(
+      'PETG: Fan speed (fan_min_speed)',
+    );
   });
 
   it('keeps failed saves pending, and retries them', async () => {

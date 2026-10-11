@@ -1,17 +1,20 @@
 import type { SavePreview } from '@comparer/app';
 import { Dialog } from '../../components/Dialog.tsx';
-import { useComparerApp } from '../../hooks/useComparerApp.ts';
 
 interface SaveDialogProps {
   readonly previews: readonly SavePreview[];
+  /**
+   * A setting's name as the comparison shows it: its label, plus the key when another setting
+   * shares the label (see settingNames).
+   */
+  readonly nameOf: (key: string) => string;
   readonly saving: boolean;
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
 }
 
 /** The confirmation before saving: what each file gets, plus anything to know first. */
-export function SaveDialog({ previews, saving, onConfirm, onCancel }: SaveDialogProps) {
-  const app = useComparerApp();
+export function SaveDialog({ previews, nameOf, saving, onConfirm, onCancel }: SaveDialogProps) {
   const ready = previews.filter((preview) => preview.status === 'ready');
 
   return (
@@ -38,8 +41,7 @@ export function SaveDialog({ previews, saving, onConfirm, onCancel }: SaveDialog
       <ul className="save-list">
         {previews.map(({ target, status, keys, reformatted }) => (
           <li key={target.id}>
-            <strong>{target.name}</strong>:{' '}
-            {keys.map((key) => app.describeSetting(key)?.label ?? key).join(', ')}
+            <strong>{target.name}</strong>: {keys.map(nameOf).join(', ')}
             {status === 'needs-user-preset' && (
               <p className="warning">
                 A system preset can't be changed, and saving it as a new user preset isn't available

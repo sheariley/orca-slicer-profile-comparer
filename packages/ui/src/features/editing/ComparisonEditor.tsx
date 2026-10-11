@@ -269,6 +269,7 @@ export function ComparisonEditor({ initial, left, right, onDirtyChange }: Compar
       {(save.step === 'confirm' || save.step === 'saving') && (
         <SaveDialog
           previews={app.previewSave(session)}
+          nameOf={labelOf}
           saving={save.step === 'saving'}
           onConfirm={() => void runSave(null)}
           onCancel={() => setSave({ step: 'idle' })}
