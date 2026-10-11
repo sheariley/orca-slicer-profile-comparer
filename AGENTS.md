@@ -254,7 +254,9 @@ Enforce these with ESLint and dependency-cruiser so CI fails on a violation. Don
 - **Run the shared contract suite (`host-contract-tests`) against every adapter** (memory, Tauri, plugin) so they behave the same.
 - **Test the `app` and `ui` layers against `host-memory`.** They should never need a real file system or OrcaSlicer to be tested.
 - **Make sure `ui` runs in a plain browser with `host-memory`** (the `playground` app) for fast development and previews.
-- **Save screenshots and other output from automated test runs in `.test-artifacts/`** at the repo root (git-ignored), in a folder per run (e.g. `.test-artifacts/2026-10-10-e5-real-folder/`). Never leave them in temp folders or commit them.
+- **Keep everything from automated test runs in `.test-artifacts/`** at the repo root (git-ignored). Never leave it in temp folders or commit it.
+  - Screenshots and other output go in a folder per run (e.g. `.test-artifacts/2026-10-10-e5-real-folder/`).
+  - Temporary test scripts (bash, PowerShell, Node, Python) go in `.test-artifacts/scripts/`, with a comment at the top saying what each one does and how to run it. Check there before writing a new one, and reuse or update what's there.
 
 ## Commands
 
